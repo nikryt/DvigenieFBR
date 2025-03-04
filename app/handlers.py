@@ -2,16 +2,20 @@ import os
 import cv2
 import logging
 from pathlib import Path
-from aiogram import Router, Bot
+from aiogram import Router, Bot, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-# from torchvision import message
+
+
+from app.database.requests import add_embedding, process_directory
+
 
 from app.keyboards import get_start_keyboard, get_confirmation_keyboard
-from app.recognition.face import recognize_face, save_embedding, mtcnn, known_embeddings
-# from app.database.requests import add_embedding
+from app.recognition.face import recognize_face, save_embedding, mtcnn, get_photos_by_name
+from config import known_embeddings
+
 
 
 router = Router()
@@ -163,7 +167,7 @@ async def confirmation_handler(callback: CallbackQuery, state: FSMContext):
     try:
         if callback.data == "confirm_add":
             embed = await save_embedding(data['photo_path'], data['name'], data['tg_id'])  # Добавляем data['name']
-            # await add_embedding(name=data['name'], embedding=embed)
+            await add_embedding(name=data['name'], tg_id=data['tg_id'], embedding=embed)
             await callback.message.answer("✅ Человек успешно добавлен в базу!")
             # Обновляем кеш эмбеддингов
             known_embeddings[data['name']] = embed  # Добавляем в словарь
@@ -192,3 +196,30 @@ async def cancel_handler(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer("Операция отменена", reply_markup=get_start_keyboard())
+
+@router.message(F.text.lower() == "найди")
+async def scan_photos_handler(message: Message):
+    """Запуск обработки фотографий в папке"""
+    await message.answer("Начало обработки фотографий...")
+    await process_directory()
+    await message.answer("Обработка завершена! Найдено новых фото: ...")
+
+
+@router.message(F.text.startswith("Найти "))
+async def find_photos_handler(message: Message):
+    """Обработчик поиска фотографий по имени"""
+    try:
+        name = message.text.split(" ", 1)[1].strip()
+        photos = await get_photos_by_name(name)
+
+        if not photos:
+            await message.answer(f"Фотографии с {name} не найдены.")
+            return
+
+        # Отправляем первые 10 результатов
+        response = f"Найдено {len(photos)} фото:\n" + "\n".join(photos[:14])
+        await message.answer(response)
+
+    except Exception as e:
+        logger.error(f"Ошибка поиска: {str(e)}")
+        await message.answer("Произошла ошибка при поиске.")

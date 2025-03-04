@@ -1,11 +1,17 @@
+import cv2
+import sqlalchemy as sa
 import numpy as np
-from sqlalchemy import select
+import faiss
+
+from config import PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index
+from pathlib import Path
+from sqlalchemy import select, and_
+from config import known_embeddings
+
+from .models import FaceEmbedding, async_session, Photo, async_session_photo
 
 
-from .models import FaceEmbedding, async_session
-
-
-async def add_embedding(name: str, embedding: np.ndarray):
+async def add_embedding(name: str, tg_id: str, embedding: np.ndarray):
     async with async_session() as db:
         try:
             # Используем select для поиска по имени
@@ -17,7 +23,7 @@ async def add_embedding(name: str, embedding: np.ndarray):
                 raise ValueError("Имя уже существует!")
 
             embedding_bytes = embedding.tobytes()
-            new_face = FaceEmbedding(name=name, embedding=embedding_bytes)
+            new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
             db.add(new_face)
             await db.commit()
         except Exception as e:
@@ -28,5 +34,99 @@ async def get_embedding_by_name(name: str):
     async with async_session() as db:
         result = await db.execute(select(FaceEmbedding).filter_by(name=name))
         return result.scalar_one_or_none()
+
+async def load_embeddings():
+    """Загрузка эмбеддингов из БД"""
+    global known_embeddings
+    async with async_session() as db:
+        result = await db.execute(select(FaceEmbedding))
+        for row in result.scalars():
+            known_embeddings[row.name] = np.frombuffer(row.embedding, dtype=np.float32)
+
+
+# Сохранение данных о файлах в папке
+async def save_file_metadata(file_path: Path, person_name: str = None):
+    async with async_session_photo() as session:
+        # Используем first() вместо scalar_one_or_none()
+        existing = await session.execute(sa.select(Photo).where(Photo.file_path == str(file_path)))
+        if not existing.scalars().first():
+            new_photo = Photo(
+                file_path=str(file_path),
+                person_name=person_name,
+                processed=False
+            )
+            session.add(new_photo)
+            await session.commit()
+
+
+
+
+async def process_directory():
+    """Обработка всех фотографий в целевой папке"""
+    processed_files = set()
+
+    # Получаем список уже обработанных файлов из БД
+    async with async_session_photo() as session:
+        result = await session.execute(select(Photo.file_path))
+        processed_files = {row[0] for row in result}
+
+    # Рекурсивный поиск изображений
+    for ext in ['*.jpg', '*.jpeg', '*.png']:
+        for file_path in PHOTOS_DIR.rglob(ext):
+            if str(file_path) in processed_files:
+                continue
+
+            # Обработка нового файла
+            await process_image(file_path)
+
+
+async def process_image(file_path: Path):
+    """Обработка одного изображения и сохранение метаданных"""
+    from app.recognition.face import mtcnn, resnet, device
+
+    try:
+        image = cv2.cvtColor(cv2.imread(str(file_path)), cv2.COLOR_BGR2RGB)
+        faces = mtcnn(image)
+
+        if faces is not None:
+            faces = faces.to(device)
+            embeddings = resnet(faces).detach().cpu().numpy()
+
+            # Сохранение в Faiss
+            await update_faiss_index(embeddings, str(file_path))
+
+            # Сохранение метаданных
+            await save_file_metadata(str(file_path))
+
+    except Exception as e:
+        print(f"Error processing {file_path}: {str(e)}")
+
+
+async def update_faiss_index(embeddings: np.ndarray, file_path: str):
+    """Обновление индекса Faiss и связей с файлами"""
+    index = faiss.read_index(FAISS_INDEX_PATH)
+
+    # Добавляем эмбеддинги
+    if index.ntotal == 0:
+        index.add(embeddings)
+    else:
+        index.add(embeddings)
+
+    # Сохраняем обновленный индекс
+    faiss.write_index(index, FAISS_INDEX_PATH)
+
+    # Сохраняем соответствия индексов и файлов
+    async with async_session_photo() as session:
+        # Удаляем старые записи перед добавлением новых
+        await session.execute(
+            sa.delete(Photo).where(Photo.file_path == file_path))
+        # Добавляем только одну запись
+        new_photo = Photo(
+            file_path=file_path,
+            embedding_idx=index.ntotal - len(embeddings),
+            processed=True
+        )
+        session.add(new_photo)
+        await session.commit()
 
 

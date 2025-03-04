@@ -1,21 +1,45 @@
-from sqlalchemy import Column, Integer, String, LargeBinary, BigInteger
+import os
+from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, LargeBinary, BigInteger, Boolean, DateTime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import mapped_column, sessionmaker
+from sqlalchemy.orm import mapped_column, sessionmaker, declarative_base
+from dotenv import load_dotenv
 
 # Настройка подключения к БД
-engine = create_async_engine('sqlite+aiosqlite:///faces.db')
+load_dotenv()
+engine =  create_async_engine(url=os.getenv('SQLALCHEMY_URL'))
+enginephoto = create_async_engine(url=os.getenv('SQLITE_PHOTO'))
 async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session_photo = sessionmaker(enginephoto, class_=AsyncSession, expire_on_commit=False)
 
-Base = declarative_base()
+BaseFace = declarative_base()
+BasePhoto = declarative_base()
 
-class FaceEmbedding(Base):
+class FaceEmbedding(BaseFace):
     __tablename__ = "face_embeddings"
+
     id = Column(Integer, primary_key=True)
     tg_id = mapped_column(BigInteger)
     name = Column(String, nullable=False)
     embedding = Column(LargeBinary, nullable=False)
 
+
+class Photo(BasePhoto):
+    __tablename__ = "photos"
+
+    id = Column(Integer, primary_key=True)
+    file_path = Column(String(255), unique=True)  # Добавлен unique=True
+    embedding_idx = Column(Integer)
+    processed = Column(Boolean, default=False)
+    processed_at = Column(DateTime, default=datetime.now)
+
+
 async  def async_main():
+    # Создание таблиц для FaceEmbedding в основной БД (engine)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(BaseFace.metadata.create_all)
+
+    # Создание таблиц для Photo в отдельной БД (enginephoto)
+    async with enginephoto.begin() as conn:
+        await conn.run_sync(BasePhoto.metadata.create_all)

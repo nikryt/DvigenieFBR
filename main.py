@@ -8,19 +8,16 @@ from aiogram.enums import ParseMode
 
 from app.database.models import async_main
 from app.handlers import router
-from app.recognition.face import load_embeddings
+from app.database.requests import load_embeddings
 from bot_cmd_list import private
-
+from config import known_embeddings
 
 async def main():
 # Запуск функции базы данных в самом начале, для того что-бы при запуске бота создавались все таблицы.
-#     await  async_main()
+    await  async_main()
 
 # Загрузка переменных окружения
     load_dotenv()
-
-# Запуск функции базы данных в самом начале, для того что-бы при запуске бота создавались все таблицы.
-    await  async_main()
 
 # Загружаем эмбеддинги при старте
     global known_embeddings
