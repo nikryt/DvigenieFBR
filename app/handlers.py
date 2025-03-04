@@ -91,8 +91,8 @@ async def recognition_photo_handler(message: Message, bot: Bot, state: FSMContex
         photo = message.photo[-1]
         download_path = await download_photo(bot, photo.file_id, "recog_")
 
-        if result := recognize_face(download_path):
-            await message.answer(f"Это похоже на: {result}")
+        if result := await recognize_face(download_path):
+            await message.answer(f"На фотографии есть: {result}")
         else:
             await message.answer("Не удалось распознать человека.")
 
@@ -161,7 +161,7 @@ async def confirmation_handler(callback: CallbackQuery, state: FSMContext):
     try:
         if callback.data == "confirm_add":
             embed = await save_embedding(data['photo_path'], data['name'])  # Добавляем data['name']
-            await add_embedding(name=data['name'], embedding=embed)
+            # await add_embedding(name=data['name'], embedding=embed)
             await callback.message.answer("✅ Человек успешно добавлен в базу!")
             # Обновляем кеш эмбеддингов
             known_embeddings[data['name']] = embed  # Добавляем в словарь

@@ -1,3 +1,5 @@
+import asyncio
+
 import torch
 from sqlalchemy import select
 
@@ -10,7 +12,12 @@ import cv2
 
 # Инициализация моделей
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-mtcnn = MTCNN(keep_all=True, device=device)
+mtcnn = MTCNN(
+    keep_all=True,
+    device=device,
+    thresholds=[0.6, 0.7, 0.8],
+    min_face_size=80
+)
 resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 
 # Глобальный кеш эмбеддингов (инициализируется при старте)
@@ -37,12 +44,12 @@ async def load_embeddings():
 # known_embeddings = load_embeddings()  # Загружаем при старте
 
 # Функция распознавания
-def recognize_face(image_path, threshold=0.56):
+async def recognize_face(image_path, threshold=0.52):
     # Загрузка изображения
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
 
-    # Обнаружение лиц
-    faces = mtcnn(image)
+    # Обнаружение лиц (если mtcnn блокирующий, используйте asyncio.to_thread)
+    faces = await asyncio.to_thread(mtcnn, image)
     if faces is None:
         return None
 
