@@ -4,7 +4,7 @@ import cv2
 import logging
 from pathlib import Path
 from aiogram import Router, Bot, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -231,14 +231,13 @@ async def scan_photos_handler(message: Message):
 # #   Отправка всех найденных фото текстом
 # #___________________________________________________________________________________________________________________
 
-
 #___________________________________________________________________________________________________________________
-#   Отправка всех найденных фото
+#   Отправка всех найденных фото альбомами 10 штук в альбоме
 #___________________________________________________________________________________________________________________
 
 @router.message(F.text.startswith("Найти "))
 async def find_photos_handler(message: Message):
-    """Обработчик поиска фотографий по имени"""
+    """Обработчик поиска с отправкой альбомами"""
     try:
         name = message.text.split(" ", 1)[1].strip()
         photos = await get_photos_by_name(name)
@@ -247,53 +246,131 @@ async def find_photos_handler(message: Message):
             await message.answer(f"Фотографии с именем {name} не найдены.")
             return
 
-        # Указываем базовый путь к папке с фото
         base_path = "./"
-
-        # Отправляем уведомление о начале отправки
         total = len(photos)
-        await message.answer(f"🔍 Найдено {total} фото. Начинаю отправку...")
+        await message.answer(f"📁 Найдено {total} фото. Формирую альбомы...")
 
-        # Отправляем все фото
         success = 0
         errors = 0
+        chunk_size = 10
 
-        for idx, photo_path in enumerate(photos, 1):  # Убрали срез [:10]
-            try:
-                full_path = os.path.join(base_path, photo_path)
+        # Разбиваем фото на группы по 10
+        for i in range(0, total, chunk_size):
+            chunk = photos[i:i + chunk_size]
+            media_group = []
 
-                if not os.path.exists(full_path):
-                    logger.warning(f"Файл не найден: {full_path}")
+            # Формируем альбом
+            for photo_path in chunk:
+                try:
+                    full_path = os.path.join(base_path, photo_path)
+
+                    if not os.path.exists(full_path):
+                        logger.warning(f"Файл не найден: {full_path}")
+                        errors += 1
+                        continue
+
+                    media_group.append(InputMediaPhoto(
+                        media=FSInputFile(full_path),
+                        caption=f"Фото {i + 1}-{i + len(chunk)}" if len(media_group) == 0 else None
+                    ))
+                    success += 1
+
+                except Exception as e:
+                    logger.error(f"Ошибка подготовки {photo_path}: {str(e)}")
                     errors += 1
-                    continue
 
-                file = FSInputFile(full_path)
-                await message.answer_document(file)
-                success += 1
+            # Отправляем альбом если есть фото
+            if media_group:
+                try:
+                    await message.answer_media_group(media_group)
+                    await asyncio.sleep(1)  # Задержка между альбомами
 
-                # Обновляем статус каждые 10 файлов
-                if idx % 10 == 0:
-                    await message.answer(f"📤 Отправлено {idx}/{total}...")
+                    # Прогресс каждые 50 файлов
+                    if (i // chunk_size) % 5 == 0:
+                        await message.answer(f"🚀 Отправлено {min(i + chunk_size, total)}/{total}")
 
-                # Увеличиваем задержку для надежности
-                await asyncio.sleep(1)  # Было 0.5
+                except Exception as e:
+                    logger.error(f"Ошибка отправки альбома: {str(e)}")
+                    errors += len(media_group)
+                    success -= len(media_group)
 
-            except Exception as e:
-                logger.error(f"Ошибка отправки {photo_path}: {str(e)}")
-                errors += 1
-
-        # Финал отправки
+        # Итоговое сообщение
         await message.answer(
-            f"✅ Готово! Успешно отправлено: {success}\n"
-            f"❌ Ошибок: {errors}"
+            f"✅ Все альбомы отправлены!\n"
+            f"✅ Успешно: {success} фото\n"
+            f"❌ Пропущено: {errors}"
         )
 
     except Exception as e:
         logger.error(f"Ошибка поиска: {str(e)}", exc_info=True)
-        await message.answer("Произошла критическая ошибка при поиске.")
+        await message.answer("❌ Произошла критическая ошибка при обработке запроса.")
+
 #___________________________________________________________________________________________________________________
-#   Отправка всех найденных фото
+#   Отправка всех найденных фото альбомами 10 штук в альбоме
 #___________________________________________________________________________________________________________________
+#
+# #___________________________________________________________________________________________________________________
+# #   Отправка всех найденных фото
+# #___________________________________________________________________________________________________________________
+#
+# @router.message(F.text.startswith("Найти "))
+# async def find_photos_handler(message: Message):
+#     """Обработчик поиска фотографий по имени"""
+#     try:
+#         name = message.text.split(" ", 1)[1].strip()
+#         photos = await get_photos_by_name(name)
+#
+#         if not photos:
+#             await message.answer(f"Фотографии с именем {name} не найдены.")
+#             return
+#
+#         # Указываем базовый путь к папке с фото
+#         base_path = "./"
+#
+#         # Отправляем уведомление о начале отправки
+#         total = len(photos)
+#         await message.answer(f"🔍 Найдено {total} фото. Начинаю отправку...")
+#
+#         # Отправляем все фото
+#         success = 0
+#         errors = 0
+#
+#         for idx, photo_path in enumerate(photos, 1):  # Убрали срез [:10]
+#             try:
+#                 full_path = os.path.join(base_path, photo_path)
+#
+#                 if not os.path.exists(full_path):
+#                     logger.warning(f"Файл не найден: {full_path}")
+#                     errors += 1
+#                     continue
+#
+#                 file = FSInputFile(full_path)
+#                 await message.answer_document(file)
+#                 success += 1
+#
+#                 # Обновляем статус каждые 10 файлов
+#                 if idx % 10 == 0:
+#                     await message.answer(f"📤 Отправлено {idx}/{total}...")
+#
+#                 # Увеличиваем задержку для надежности
+#                 await asyncio.sleep(1)  # Было 0.5
+#
+#             except Exception as e:
+#                 logger.error(f"Ошибка отправки {photo_path}: {str(e)}")
+#                 errors += 1
+#
+#         # Финал отправки
+#         await message.answer(
+#             f"✅ Готово! Успешно отправлено: {success}\n"
+#             f"❌ Ошибок: {errors}"
+#         )
+#
+#     except Exception as e:
+#         logger.error(f"Ошибка поиска: {str(e)}", exc_info=True)
+#         await message.answer("Произошла критическая ошибка при поиске.")
+# #___________________________________________________________________________________________________________________
+# #   Отправка всех найденных фото
+# #___________________________________________________________________________________________________________________
 
 
 # #___________________________________________________________________________________________________________________
