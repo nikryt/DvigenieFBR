@@ -5,6 +5,8 @@ import logging
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
+
+from app.database.models import async_main
 from app.handlers import router
 from app.recognition.face import load_embeddings
 from bot_cmd_list import private
@@ -17,6 +19,8 @@ async def main():
 # Загрузка переменных окружения
     load_dotenv()
 
+# Запуск функции базы данных в самом начале, для того что-бы при запуске бота создавались все таблицы.
+    await  async_main()
 
 # Загружаем эмбеддинги при старте
     global known_embeddings

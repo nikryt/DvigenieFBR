@@ -7,10 +7,11 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+# from torchvision import message
 
 from app.keyboards import get_start_keyboard, get_confirmation_keyboard
 from app.recognition.face import recognize_face, save_embedding, mtcnn, known_embeddings
-from app.database.requests import add_embedding
+# from app.database.requests import add_embedding
 
 
 router = Router()
@@ -140,11 +141,12 @@ async def add_face_photo_handler(message: Message, state: FSMContext, bot: Bot):
 async def add_face_name_handler(message: Message, state: FSMContext):
     """Обработка ввода имени"""
     name = message.text.strip()
+    tg_id = message.from_user.id
     if not name.replace(' ', '').isalnum():
         await message.answer("Имя должно содержать только буквы, цифры и пробелы")
         return
 
-    await state.update_data(name=name)
+    await state.update_data(name=name, tg_id=tg_id)
     await message.answer(
         f"Добавить нового человека?\nИмя: {name}",
         reply_markup=get_confirmation_keyboard()
@@ -160,7 +162,7 @@ async def confirmation_handler(callback: CallbackQuery, state: FSMContext):
 
     try:
         if callback.data == "confirm_add":
-            embed = await save_embedding(data['photo_path'], data['name'])  # Добавляем data['name']
+            embed = await save_embedding(data['photo_path'], data['name'], data['tg_id'])  # Добавляем data['name']
             # await add_embedding(name=data['name'], embedding=embed)
             await callback.message.answer("✅ Человек успешно добавлен в базу!")
             # Обновляем кеш эмбеддингов

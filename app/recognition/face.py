@@ -67,7 +67,7 @@ async def recognize_face(image_path, threshold=0.52):
     return None
 
 
-async def save_embedding(image_path: str, name: str):
+async def save_embedding(image_path: str, name: str, tg_id: str):
     """Сохранение эмбеддинга в БД"""
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     faces = mtcnn(image)
@@ -79,7 +79,7 @@ async def save_embedding(image_path: str, name: str):
 
     # Обновляем БД и кеш
     async with async_session() as db:
-        new_face = FaceEmbedding(name=name, embedding=embedding.tobytes())
+        new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding.tobytes())
         db.add(new_face)
         await db.commit()
 

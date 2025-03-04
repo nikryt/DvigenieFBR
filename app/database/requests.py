@@ -1,13 +1,9 @@
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from .models import Base, FaceEmbedding
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
 import numpy as np
+from sqlalchemy import select
 
-# Настройка подключения к БД
-engine = create_async_engine('sqlite+aiosqlite:///faces.db')
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+from .models import FaceEmbedding, async_session
+
 
 async def add_embedding(name: str, embedding: np.ndarray):
     async with async_session() as db:
