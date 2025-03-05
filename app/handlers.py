@@ -99,9 +99,17 @@ async def recognition_photo_handler(message: Message, bot: Bot, state: FSMContex
         download_path = await download_photo(bot, photo.file_id, "recog_")
 
         if result := await fc.recognize_face(download_path):
-            await message.answer(f"На фотографии есть: {result}")
+            response = "Распознанные лица:\n" + "\n".join(
+                [f"{name} ({sim:.2%})" for name, sim in result]
+            )
+            await message.answer(response)
         else:
-            await message.answer("Не удалось распознать человека.")
+            await message.answer("Не удалось распознать людей.")
+        #заменил блок на новый для работы с FAISS
+        # if result := await fc.recognize_face(download_path):
+        #     await message.answer(f"На фотографии есть: {result}")
+        # else:
+        #     await message.answer("Не удалось распознать человека.")
 
         os.remove(download_path)
         await state.clear()

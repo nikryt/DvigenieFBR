@@ -10,7 +10,7 @@ from app.database.models import async_main
 from app.handlers import router
 from app.database.requests import load_embeddings
 from bot_cmd_list import private
-
+from config import update_known_embeddings
 
 async def main():
 # Запуск функции базы данных в самом начале, для того что-бы при запуске бота создавались все таблицы.
@@ -19,14 +19,8 @@ async def main():
 # Загрузка переменных окружения
     load_dotenv()
 
-
-    from app.database.requests import load_embeddings
-
     loaded_embeddings = await load_embeddings()
-
     # Обновляем глобальную переменную
-    from config import update_known_embeddings
-
     update_known_embeddings(loaded_embeddings)
 
 

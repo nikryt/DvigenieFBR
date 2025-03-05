@@ -19,6 +19,20 @@ def get_known_embeddings():
 PHOTOS_DIR = Path("user_photos")
 FAISS_INDEX_PATH = "embeddings.faiss"
 
+# Добавьте новую конфигурацию для индекса эмбеддингов лиц
+FACE_EMBED_INDEX_PATH = "face_embeds.faiss"
+FACE_EMBEDDING_DIM = 512  # Размерность эмбеддинга
+
+# Инициализация индекса для эмбеддингов лиц
+try:
+    face_embeds_index = faiss.read_index(FACE_EMBED_INDEX_PATH)
+    known_embeddings_names = np.load("face_names.npy", allow_pickle=True).tolist()
+except:
+    face_embeds_index = faiss.IndexFlatL2(FACE_EMBEDDING_DIM)
+    known_embeddings_names = []
+    faiss.write_index(face_embeds_index, FACE_EMBED_INDEX_PATH)
+    np.save("face_names.npy", known_embeddings_names)
+
 # Инициализация индекса Faiss
 def init_faiss_index(dim=512):
     return faiss.IndexFlatL2(dim)

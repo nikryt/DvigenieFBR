@@ -1,15 +1,13 @@
 import logging
-
 import cv2
 import sqlalchemy as sa
 import numpy as np
 import faiss
 
-from config import PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index, known_embeddings
+from config import PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index, FACE_EMBED_INDEX_PATH, \
+    FACE_EMBEDDING_DIM, face_embeds_index, known_embeddings_names
 from pathlib import Path
 from sqlalchemy import select
-
-
 from .models import FaceEmbedding, async_session, Photo, async_session_photo
 
 # Новая функция добавления нескольких эмбеддингов
@@ -51,27 +49,60 @@ async def get_embedding_by_name(name: str):
 
 
 async def load_embeddings():
-    """Загрузка эмбеддингов из БД"""
     global known_embeddings
     known_embeddings = {}
+
+    index = faiss.IndexFlatL2(FACE_EMBEDDING_DIM)
+    names_list = []
+
     async with async_session() as session:
         result = await session.execute(select(FaceEmbedding))
-        rows = result.scalars().all()  # Получаем все записи
+        for row in result.scalars():
+            # Создаем копию массива, чтобы он был доступен для изменения
+            embedding = np.frombuffer(row.embedding, dtype=np.float32).copy()
 
-        if not rows:
-            logging.error("Таблица face_embeddings пуста!")
-            return known_embeddings
+            # Нормализация эмбеддинга
+            embedding /= np.linalg.norm(embedding)
 
-        for row in rows:
+            # Добавляем эмбеддинг в словарь
             if row.name not in known_embeddings:
                 known_embeddings[row.name] = []
-
-            embedding = np.frombuffer(row.embedding, dtype=np.float32)
-            embedding = embedding / np.linalg.norm(embedding)
             known_embeddings[row.name].append(embedding)
 
-        logging.info(f"Загружено {len(known_embeddings)} уникальных имен с эмбеддингами.")
-        return known_embeddings
+            # Добавляем эмбеддинг в индекс FAISS
+            index.add(embedding.reshape(1, -1))
+            names_list.append(row.name)
+
+    # Сохраняем индекс FAISS и список имен
+    faiss.write_index(index, FACE_EMBED_INDEX_PATH)
+    np.save("face_names.npy", names_list)
+
+    return known_embeddings
+
+
+# Работало, но начал обновлять с индексами faiss
+# async def load_embeddings():
+#     """Загрузка эмбеддингов из БД"""
+#     global known_embeddings
+#     known_embeddings = {}
+#     async with async_session() as session:
+#         result = await session.execute(select(FaceEmbedding))
+#         rows = result.scalars().all()  # Получаем все записи
+#
+#         if not rows:
+#             logging.error("Таблица face_embeddings пуста!")
+#             return known_embeddings
+#
+#         for row in rows:
+#             if row.name not in known_embeddings:
+#                 known_embeddings[row.name] = []
+#
+#             embedding = np.frombuffer(row.embedding, dtype=np.float32)
+#             embedding = embedding / np.linalg.norm(embedding)
+#             known_embeddings[row.name].append(embedding)
+#
+#         logging.info(f"Загружено {len(known_embeddings)} уникальных имен с эмбеддингами.")
+#         return known_embeddings
 
 # async def load_embeddings():
 #     """Загрузка эмбеддингов из БД"""
@@ -201,6 +232,9 @@ async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
             session.add(new_face)
             await session.commit()
+
+            # Обновляем кеш и индекс FAISS
+            await update_cache_and_index(name, embedding)
         except Exception as e:
             await session.rollback()
             raise e
@@ -271,3 +305,18 @@ async def check_name_exists(name: str) -> bool:
     async with async_session() as session:
         result = await session.execute(select(FaceEmbedding).where(FaceEmbedding.name == name))
         return result.scalars().first() is not None
+
+async def update_cache_and_index(name: str, embedding: np.ndarray):
+    """Обновляет кеш эмбеддингов и индекс FAISS."""
+    # Обновляем кеш
+    if name not in known_embeddings:
+        known_embeddings[name] = []
+    known_embeddings[name].append(embedding)
+
+    # Обновляем индекс FAISS
+    face_embeds_index.add(embedding.reshape(1, -1))
+    known_embeddings_names.append(name)
+
+    # Сохраняем обновленный индекс и имена
+    faiss.write_index(face_embeds_index, FACE_EMBED_INDEX_PATH)
+    np.save("face_names.npy", known_embeddings_names)
