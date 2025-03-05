@@ -16,13 +16,24 @@ async_session_photo = sessionmaker(enginephoto, class_=AsyncSession, expire_on_c
 BaseFace = declarative_base()
 BasePhoto = declarative_base()
 
+# Новый класс с несколькими эимбеддингами на челоека
 class FaceEmbedding(BaseFace):
     __tablename__ = "face_embeddings"
 
     id = Column(Integer, primary_key=True)
-    tg_id = mapped_column(BigInteger)
-    name = Column(String, nullable=False)
-    embedding = Column(LargeBinary, nullable=False)
+    tg_id = mapped_column(BigInteger)  # ID пользователя, который добавил эмбеддинг
+    name = Column(String, nullable=False)  # Имя человека
+    embedding = Column(LargeBinary, nullable=False)  # Эмбеддинг
+    created_at = Column(DateTime, default=datetime.now)  # Время добавления эмбеддинга
+
+#старый класс с одним эмеддингом
+# class FaceEmbedding(BaseFace):
+#     __tablename__ = "face_embeddings"
+#
+#     id = Column(Integer, primary_key=True)
+#     tg_id = mapped_column(BigInteger)
+#     name = Column(String, nullable=False)
+#     embedding = Column(LargeBinary, nullable=False)
 
 
 class Photo(BasePhoto):

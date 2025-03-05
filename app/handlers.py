@@ -10,14 +10,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 
-from app.database.requests import add_embedding, process_directory
-
-
-from app.keyboards import get_start_keyboard, get_confirmation_keyboard
-from app.recognition.face import recognize_face, save_embedding, mtcnn, get_photos_by_name
+# from app.recognition.face import recognize_face, save_embedding, mtcnn, get_photos_by_name
 from config import known_embeddings
 
 
+import app.database.requests as rq
+import app.keyboards as kb
+import app.recognition.face as fc
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -28,6 +27,8 @@ Path("app/recognition/known_faces").mkdir(parents=True, exist_ok=True)
 
 
 class AddFaceState(StatesGroup):
+    waiting_for_name_selection = State()
+    waiting_for_new_photo = State()  # Новое состояние для добавления новых фото
     waiting_for_photo = State()
     waiting_for_name = State()
     confirmation = State()
@@ -58,7 +59,7 @@ async def validate_photo(image_path: str) -> bool:
     """Проверяет фото на наличие одного лица"""
     try:
         image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-        faces = mtcnn(image)
+        faces = fc.mtcnn(image)
 
         if faces is None or len(faces) == 0:
             logger.warning("Лицо не обнаружено")
@@ -78,7 +79,7 @@ async def start_handler(message: Message, state: FSMContext):
     """Обработчик команды /start"""
     await message.answer(
         "Привет! Отправь мне фото человека, и я попробую его распознать.",
-        reply_markup=get_start_keyboard(),
+        reply_markup=kb.get_start_keyboard(),
     )
     await state.set_state(MainState.recognizing)
 
@@ -97,7 +98,7 @@ async def recognition_photo_handler(message: Message, bot: Bot, state: FSMContex
         photo = message.photo[-1]
         download_path = await download_photo(bot, photo.file_id, "recog_")
 
-        if result := await recognize_face(download_path):
+        if result := await fc.recognize_face(download_path):
             await message.answer(f"На фотографии есть: {result}")
         else:
             await message.answer("Не удалось распознать человека.")
@@ -111,6 +112,78 @@ async def recognition_photo_handler(message: Message, bot: Bot, state: FSMContex
         await state.clear()
 
 
+@router.message(lambda message: message.text == "Добавить эмбеддинги")
+async def add_embeddings_handler(message: Message, state: FSMContext):
+    # Получаем список всех имён из базы данных
+    names = await rq.get_all_names()
+
+    if not names:
+        await message.answer("В базе данных пока нет лиц.")
+        return
+
+    # Создаём клавиатуру с именами
+    keyboard = kb.get_names_keyboard(names)
+
+    await message.answer("Выберите имя человека, для которого хотите добавить эмбеддинги:", reply_markup=keyboard)
+    await state.set_state(AddFaceState.waiting_for_name_selection)
+
+@router.message(AddFaceState.waiting_for_name_selection)
+async def name_selection_handler(message: Message, state: FSMContext):
+    """Обработка выбора имени для добавления эмбеддингов"""
+    selected_name = message.text.strip()
+
+    # Проверяем, что выбранное имя есть в базе данных
+    if not await rq.check_name_exists(selected_name):
+        await message.answer("Имя не найдено в базе данных. Попробуйте снова.")
+        return
+
+    # Сохраняем выбранное имя в состоянии
+    await state.update_data(selected_name=selected_name)
+    await message.answer(f"Вы выбрали имя: {selected_name}. Теперь отправьте фото для добавления эмбеддингов.")
+    await state.set_state(AddFaceState.waiting_for_new_photo)
+
+
+
+# Обработчик, который будет обрабатывать фотографии, отправленные после выбора имени
+@router.message(AddFaceState.waiting_for_new_photo, lambda message: message.photo)
+async def add_new_embedding_photo_handler(message: Message, state: FSMContext, bot: Bot):
+    """Обработка новой фотографии для добавления эмбеддинга"""
+    try:
+        # Получаем данные из состояния (выбранное имя)
+        data = await state.get_data()
+        selected_name = data.get("selected_name")
+        tg_id = message.from_user.id
+
+        # Скачиваем фото
+        photo = message.photo[-1]
+        download_path = await download_photo(bot, photo.file_id, "add_")
+
+        # Проверяем фото на наличие одного лица
+        if not await validate_photo(download_path):
+            await message.answer("Проблемы с фото. Проверьте требования и попробуйте снова.")
+            os.remove(download_path)
+            await state.clear()
+            return
+
+        # Сохраняем эмбеддинг в базу данных
+        embed = await fc.save_embedding(download_path, selected_name, tg_id)
+        if embed is not None:
+            await message.answer(f"✅ Новый эмбеддинг для {selected_name} успешно добавлен!")
+        else:
+            await message.answer("❌ Ошибка при добавлении эмбеддинга.")
+
+        # Удаляем временный файл
+        os.remove(download_path)
+
+        # Очищаем состояние
+        await state.clear()
+
+    except Exception as e:
+        logger.error(f"Ошибка добавления эмбеддинга: {str(e)}")
+        await message.answer("Произошла ошибка при обработке фото.")
+        await state.clear()
+
+
 # Обновим обработчик добавления лиц
 @router.message(lambda message: message.text == "Добавить лицо")
 async def add_face_start_handler(message: Message, state: FSMContext):
@@ -118,10 +191,9 @@ async def add_face_start_handler(message: Message, state: FSMContext):
     await message.answer("Отправьте фото человека для добавления в базу")
     await state.set_state(MainState.adding_face.waiting_for_photo)
 
-
+#  Новый роутер на добавление нескольких фото человека
 @router.message(AddFaceState.waiting_for_photo, lambda message: message.photo)
 async def add_face_photo_handler(message: Message, state: FSMContext, bot: Bot):
-    """Обработка фото для добавления"""
     try:
         photo = message.photo[-1]
         download_path = await download_photo(bot, photo.file_id, "add_")
@@ -141,6 +213,29 @@ async def add_face_photo_handler(message: Message, state: FSMContext, bot: Bot):
         await message.answer("Произошла ошибка при обработке фото")
         await state.clear()
 
+# # Старый роутер на добавление 1 фото человека
+# @router.message(AddFaceState.waiting_for_photo, lambda message: message.photo)
+# async def add_face_photo_handler(message: Message, state: FSMContext, bot: Bot):
+#     """Обработка фото для добавления"""
+#     try:
+#         photo = message.photo[-1]
+#         download_path = await download_photo(bot, photo.file_id, "add_")
+#
+#         if not await validate_photo(download_path):
+#             await message.answer("Проблемы с фото. Проверьте требования и попробуйте снова.")
+#             os.remove(download_path)
+#             await state.clear()
+#             return
+#
+#         await state.update_data(photo_path=download_path)
+#         await message.answer("Введите имя человека:")
+#         await state.set_state(AddFaceState.waiting_for_name)
+#
+#     except Exception as e:
+#         logger.error(f"Ошибка добавления лица: {str(e)}")
+#         await message.answer("Произошла ошибка при обработке фото")
+#         await state.clear()
+
 
 @router.message(AddFaceState.waiting_for_name)
 async def add_face_name_handler(message: Message, state: FSMContext):
@@ -154,7 +249,7 @@ async def add_face_name_handler(message: Message, state: FSMContext):
     await state.update_data(name=name, tg_id=tg_id)
     await message.answer(
         f"Добавить нового человека?\nИмя: {name}",
-        reply_markup=get_confirmation_keyboard()
+        reply_markup=kb.get_confirmation_keyboard()
     )
     await state.set_state(AddFaceState.confirmation)
 
@@ -167,7 +262,7 @@ async def confirmation_handler(callback: CallbackQuery, state: FSMContext):
 
     try:
         if callback.data == "confirm_add":
-            embed = await save_embedding(data['photo_path'], data['name'], data['tg_id'])  # Добавляем data['name']
+            embed = await fc.save_embedding(data['photo_path'], data['name'], data['tg_id'])  # Добавляем data['name']
             # await add_embedding(name=data['name'], tg_id=data['tg_id'], embedding=embed)
             await callback.message.answer("✅ Человек успешно добавлен в базу!")
             # Обновляем кеш эмбеддингов
@@ -196,13 +291,13 @@ async def cancel_handler(message: Message, state: FSMContext):
             os.remove(photo_path)
 
     await state.clear()
-    await message.answer("Операция отменена", reply_markup=get_start_keyboard())
+    await message.answer("Операция отменена", reply_markup=kb.get_start_keyboard())
 
 @router.message(F.text.lower() == "найди")
 async def scan_photos_handler(message: Message):
     """Запуск обработки фотографий в папке"""
     await message.answer("Начало обработки фотографий...")
-    await process_directory()
+    await rq.process_directory()
     await message.answer("Обработка завершена! Найдено новых фото: ...")
 
 # #___________________________________________________________________________________________________________________
@@ -240,7 +335,7 @@ async def find_photos_handler(message: Message):
     """Обработчик поиска с отправкой альбомами"""
     try:
         name = message.text.split(" ", 1)[1].strip()
-        photos = await get_photos_by_name(name)
+        photos = await fc.get_photos_by_name(name)
 
         if not photos:
             await message.answer(f"Фотографии с именем {name} не найдены.")

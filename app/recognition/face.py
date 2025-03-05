@@ -3,12 +3,14 @@ import asyncio
 import numpy as np
 import cv2
 import app.database.requests as rq
+import logging
 
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from sklearn.metrics.pairwise import cosine_similarity
-from app.database.vector_db import VectorDB
+
 from dotenv import load_dotenv
-from config import known_embeddings, known_embeddings_index
+from config import get_known_embeddings
+
 
 
 
@@ -21,51 +23,125 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 mtcnn = MTCNN(
     keep_all=True,
     device=device,
-    thresholds=[0.7, 0.8, 0.9], # Более строгие пороги
-    min_face_size=100,  # Минимальный размер лица
-    margin=20                     # Отступ вокруг лица
+    thresholds=[0.6, 0.7, 0.7],  # Более мягкие пороги
+    min_face_size=40,  # Уменьшенный размер
+    margin=10   # Отступ вокруг лица
+    # thresholds=[0.7, 0.8, 0.9], # Более строгие пороги
+    # min_face_size=100,  # Минимальный размер лица
+    # margin=20     # Отступ вокруг лица
 )
 resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
-vector_db = VectorDB()
 
 
-
-
+# Новая функция распознования с несколькими эмбеддингами
 # Функция распознавания фото которое прислали
 async def recognize_face(image_path, threshold=0.56):
-    # Загрузка изображения
-    image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
+    """Распознавание лица на фотографии."""
+    # Получаем актуальные эмбеддинги
+    known_embeddings = get_known_embeddings()
 
-    # Обнаружение лиц
+    # Проверка наличия эмбеддингов
+    if not known_embeddings:
+        logging.error("База эмбеддингов пуста!")
+        return None
+
+    # Логируем первые 3 имени из базы
+    sample_names = list(known_embeddings.keys())[:3]
+    logging.info(f"Пример имен в базе: {sample_names}")
+
+    logging.info(f"Начало распознавания лица для файла: {image_path}")
+    image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     faces = await asyncio.to_thread(mtcnn, image)
     if faces is None:
         return None
 
-    # Извлечение эмбеддингов
+    logging.info(f"Обнаружено {len(faces)} лиц на фотографии.")
     faces = faces.to(device)
     embeddings = resnet(faces).detach().cpu().numpy()
+    # Нормализация
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 
-    # Сравнение с базой
+    best_match = None
+    best_similarity = threshold
+
     for embed in embeddings:
-        for name, known_embed in known_embeddings.items():
-            similarity = cosine_similarity([embed], [known_embed])[0][0]
-            if similarity > threshold:
-                return name
+        # Преобразуем embed в двумерный массив
+        embed_2d = embed.reshape(1, -1)  # Преобразуем в форму (1, n)
 
-    return None
+        for name, known_embeds in known_embeddings.items():
+            for known_embed in known_embeds:
+                known_embed = known_embed / np.linalg.norm(known_embed)  # Нормализация
+                # Преобразуем known_embed в двумерный массив
+                known_embed_2d = known_embed.reshape(1, -1)  # Преобразуем в форму (1, n)
+
+                # Вычисляем косинусное сходство
+                similarity = cosine_similarity(embed_2d, known_embed_2d)[0][0]
+                logging.info(f"Сравнение с {name}: similarity={similarity}, max_similarity={best_similarity}")# Логируем сходство
+
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = name
+    logging.info(f"Лучшее совпадение: {best_match} с косинусным сходством {best_similarity}")
+    return best_match
+
+# Старая функция распознования с 1 эмбеддингом
+# # Функция распознавания фото которое прислали
+# async def recognize_face(image_path, threshold=0.56):
+#     # Загрузка изображения
+#     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
+#
+#     # Обнаружение лиц
+#     faces = await asyncio.to_thread(mtcnn, image)
+#     if faces is None:
+#         return None
+#
+#     # Извлечение эмбеддингов
+#     faces = faces.to(device)
+#     embeddings = resnet(faces).detach().cpu().numpy()
+#
+#     # Сравнение с базой
+#     for embed in embeddings:
+#         for name, known_embed in known_embeddings.items():
+#             similarity = cosine_similarity([embed], [known_embed])[0][0]
+#             if similarity > threshold:
+#                 return name
+#
+#     return None
 
 async def save_embedding(image_path: str, name: str, tg_id: str):
     """Сохранение эмбеддинга в БД"""
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     faces = mtcnn(image)
     if faces is None:
+        logging.warning("Лицо не обнаружено на фотографии.")
         return None
 
     face = faces[0].unsqueeze(0).to(device)
-    embedding = resnet(face).detach().cpu().numpy()[0]
-    known_embeddings[name] = embedding
-    await rq.save_embedding(name, tg_id, embedding)  # Вызов функции из requests.py
+    embedding = resnet(face).detach().cpu().numpy()[0]  # Извлекаем эмбеддинг
+    embedding = embedding / np.linalg.norm(embedding)  # Нормализация
+    logging.info(f"Эмбеддинг для {name} успешно извлечён.")
+
+    # Сохраняем нормализованный эмбеддинг
+    await rq.save_embedding(name, tg_id, embedding)
     return embedding
+
+# Ошибка где-то
+# async def save_embedding(image_path: str, name: str, tg_id: str):
+#     """Сохранение эмбеддинга в БД"""
+#     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
+#     faces = mtcnn(image)
+#     if faces is None:
+#         logging.warning("Лицо не обнаружено на фотографии.")
+#         return None
+#
+#     face = faces[0].unsqueeze(0).to(device)
+#     embedding = resnet(face).detach().cpu().numpy()[0]  # Эмбеддинг уже имеет форму (n,)
+#     logging.info(f"Эмбеддинг для {name} успешно извлечён.")
+#     known_embeddings[name] = embedding
+#     embedding = resnet(faces).detach().cpu().numpy()[0]
+#     embedding = embedding / np.linalg.norm(embedding)  # Нормализация
+#     await rq.save_embedding(name, tg_id, embedding)  # Вызов функции из requests.py
+#     return embedding
 
 
 async def find_user_in_photos(user_embedding: np.ndarray, k=5):

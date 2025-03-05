@@ -1,47 +1,108 @@
+import logging
+
 import cv2
 import sqlalchemy as sa
 import numpy as np
 import faiss
 
-from config import PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index
+from config import PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index, known_embeddings
 from pathlib import Path
-from sqlalchemy import select, and_
-from config import known_embeddings
+from sqlalchemy import select
+
 
 from .models import FaceEmbedding, async_session, Photo, async_session_photo
 
-
+# Новая функция добавления нескольких эмбеддингов
 async def add_embedding(name: str, tg_id: str, embedding: np.ndarray):
-    async with async_session() as db:
+    async with async_session() as session:
         try:
-            # Используем select для поиска по имени
-            existing = (await db.execute(
-                select(FaceEmbedding).where(FaceEmbedding.name == name)
-            )).scalar_one_or_none()
-
-            if existing:
-                raise ValueError("Имя уже существует!")
-
             embedding_bytes = embedding.tobytes()
             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
-            db.add(new_face)
-            await db.commit()
+            session.add(new_face)
+            await session.commit()
         except Exception as e:
-            await db.rollback()  # Асинхронный откат
+            await session.rollback()
             raise e
 
+# Старая функция добавления эмбеддинга
+# async def add_embedding(name: str, tg_id: str, embedding: np.ndarray):
+#     async with async_session() as db:
+#         try:
+#             # Используем select для поиска по имени
+#             existing = (await db.execute(
+#                 select(FaceEmbedding).where(FaceEmbedding.name == name)
+#             )).scalar_one_or_none()
+#
+#             if existing:
+#                 raise ValueError("Имя уже существует!")
+#
+#             embedding_bytes = embedding.tobytes()
+#             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
+#             db.add(new_face)
+#             await db.commit()
+#         except Exception as e:
+#             await db.rollback()  # Асинхронный откат
+#             raise e
+
 async def get_embedding_by_name(name: str):
-    async with async_session() as db:
-        result = await db.execute(select(FaceEmbedding).filter_by(name=name))
+    async with async_session() as session:
+        result = await session.execute(select(FaceEmbedding).filter_by(name=name))
         return result.scalar_one_or_none()
+
 
 async def load_embeddings():
     """Загрузка эмбеддингов из БД"""
     global known_embeddings
-    async with async_session() as db:
-        result = await db.execute(select(FaceEmbedding))
-        for row in result.scalars():
-            known_embeddings[row.name] = np.frombuffer(row.embedding, dtype=np.float32)
+    known_embeddings = {}
+    async with async_session() as session:
+        result = await session.execute(select(FaceEmbedding))
+        rows = result.scalars().all()  # Получаем все записи
+
+        if not rows:
+            logging.error("Таблица face_embeddings пуста!")
+            return known_embeddings
+
+        for row in rows:
+            if row.name not in known_embeddings:
+                known_embeddings[row.name] = []
+
+            embedding = np.frombuffer(row.embedding, dtype=np.float32)
+            embedding = embedding / np.linalg.norm(embedding)
+            known_embeddings[row.name].append(embedding)
+
+        logging.info(f"Загружено {len(known_embeddings)} уникальных имен с эмбеддингами.")
+        return known_embeddings
+
+# async def load_embeddings():
+#     """Загрузка эмбеддингов из БД"""
+#     global known_embeddings
+#     known_embeddings = {}
+#     async with async_session() as session:
+#         result = await session.execute(select(FaceEmbedding))
+#         if not result.scalars().first():
+#             logging.error("Таблица face_embeddings пуста!")
+#             for row in result.scalars():
+#                 # Сначала проверяем существование ключа
+#                 if row.name not in known_embeddings:
+#                     known_embeddings[row.name] = []
+#
+#                 # Обрабатываем эмбеддинг только один раз
+#                 embedding = np.frombuffer(row.embedding, dtype=np.float32)
+#                 embedding = embedding / np.linalg.norm(embedding)  # Нормализация
+#                 known_embeddings[row.name].append(embedding)  # Добавляем нормализованный эмбеддинг
+#
+#         logging.info(f"Загружено {len(known_embeddings)} уникальных имен с эмбеддингами.")
+#         return known_embeddings  # Добавьте возврат значения!
+
+
+# # Старая функция загрузки 1 эмбеддинга
+# async def load_embeddings():
+#     """Загрузка эмбеддингов из БД"""
+#     global known_embeddings
+#     async with async_session() as db:
+#         result = await db.execute(select(FaceEmbedding))
+#         for row in result.scalars():
+#             known_embeddings[row.name] = np.frombuffer(row.embedding, dtype=np.float32)
 
 
 # Сохранение данных о файлах в папке
@@ -130,18 +191,12 @@ async def update_faiss_index(embeddings: np.ndarray, file_path: str):
         await session.commit()
 
 
-
+# Новая функция добаления эмбеддингов. Теперь функция просто добавляет новый эмбеддинг
+# в базу данных, даже если имя уже существует.
 async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
     """Сохранение эмбеддинга в БД"""
     async with async_session() as session:
         try:
-            existing = (await session.execute(
-                select(FaceEmbedding).where(FaceEmbedding.name == name)
-            )).scalar_one_or_none()
-
-            if existing:
-                raise ValueError("Имя уже существует!")
-
             embedding_bytes = embedding.tobytes()
             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
             session.add(new_face)
@@ -149,6 +204,26 @@ async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
         except Exception as e:
             await session.rollback()
             raise e
+
+# Функция с добавления эмбеддингов с проверкой на существование имени в базе данныхэ
+# async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
+#     """Сохранение эмбеддинга в БД"""
+#     async with async_session() as session:
+#         try:
+#             existing = (await session.execute(
+#                 select(FaceEmbedding).where(FaceEmbedding.name == name)
+#             )).scalar_one_or_none()
+#
+#             if existing:
+#                 raise ValueError("Имя уже существует!")
+#
+#             embedding_bytes = embedding.tobytes()
+#             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
+#             session.add(new_face)
+#             await session.commit()
+#         except Exception as e:
+#             await session.rollback()
+#             raise e
 
 async def find_user_in_photos(user_embedding: np.ndarray, k=5):
     """Поиск пользователя в базе фотографий с использованием Faiss"""
@@ -184,3 +259,15 @@ async def get_photos_by_name(name: str, k=100):
         )
         return [row[0] for row in result]
 
+async def get_all_names():
+    """Возвращает список всех уникальных имён из базы данных."""
+    async with async_session() as session:
+        result = await session.execute(select(FaceEmbedding.name).distinct())
+        names = [row[0] for row in result]
+        return names
+
+async def check_name_exists(name: str) -> bool:
+    """Проверяет, существует ли имя в базе данных."""
+    async with async_session() as session:
+        result = await session.execute(select(FaceEmbedding).where(FaceEmbedding.name == name))
+        return result.scalars().first() is not None
