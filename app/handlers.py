@@ -168,7 +168,7 @@ async def confirmation_handler(callback: CallbackQuery, state: FSMContext):
     try:
         if callback.data == "confirm_add":
             embed = await save_embedding(data['photo_path'], data['name'], data['tg_id'])  # Добавляем data['name']
-            await add_embedding(name=data['name'], tg_id=data['tg_id'], embedding=embed)
+            # await add_embedding(name=data['name'], tg_id=data['tg_id'], embedding=embed)
             await callback.message.answer("✅ Человек успешно добавлен в базу!")
             # Обновляем кеш эмбеддингов
             known_embeddings[data['name']] = embed  # Добавляем в словарь

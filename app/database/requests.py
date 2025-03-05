@@ -130,3 +130,57 @@ async def update_faiss_index(embeddings: np.ndarray, file_path: str):
         await session.commit()
 
 
+
+async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
+    """Сохранение эмбеддинга в БД"""
+    async with async_session() as session:
+        try:
+            existing = (await session.execute(
+                select(FaceEmbedding).where(FaceEmbedding.name == name)
+            )).scalar_one_or_none()
+
+            if existing:
+                raise ValueError("Имя уже существует!")
+
+            embedding_bytes = embedding.tobytes()
+            new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
+            session.add(new_face)
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            raise e
+
+async def find_user_in_photos(user_embedding: np.ndarray, k=5):
+    """Поиск пользователя в базе фотографий с использованием Faiss"""
+    index = known_embeddings_index
+    D, I = index.search(user_embedding.reshape(1, -1), k)
+
+    async with async_session_photo() as session:
+        result = await session.execute(
+            select(Photo.file_path).where(Photo.embedding_idx.in_(I[0].tolist()))
+        )
+        return [row[0] for row in result.scalars()]
+
+async def get_photos_by_name(name: str, k=100):
+    """Поиск фотографий по имени человека"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(FaceEmbedding).where(FaceEmbedding.name == name)
+        )
+        face_embedding = result.scalar_one_or_none()
+
+    if not face_embedding:
+        return []
+
+    user_embedding = np.frombuffer(face_embedding.embedding, dtype=np.float32)
+    index = known_embeddings_index
+    D, I = index.search(user_embedding.reshape(1, -1), k)
+
+    async with async_session_photo() as session:
+        result = await session.execute(
+            select(Photo.file_path).where(
+                Photo.embedding_idx.in_(I[0].tolist())
+            )
+        )
+        return [row[0] for row in result]
+

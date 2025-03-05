@@ -2,21 +2,14 @@ import torch
 import asyncio
 import numpy as np
 import cv2
-import os
-
-from numpy import select
+import app.database.requests as rq
 
 from facenet_pytorch import MTCNN, InceptionResnetV1
-from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
-from app.database.models import FaceEmbedding, Photo
-from app.database.requests import async_session_photo, async_session
-
-from app.database.requests import save_file_metadata
 from app.database.vector_db import VectorDB
 from dotenv import load_dotenv
 from config import known_embeddings, known_embeddings_index
-from sqlalchemy import select
+
 
 
 
@@ -43,7 +36,7 @@ async def recognize_face(image_path, threshold=0.56):
     # Загрузка изображения
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
 
-    # Обнаружение лиц (если mtcnn блокирующий, используйте asyncio.to_thread)
+    # Обнаружение лиц
     faces = await asyncio.to_thread(mtcnn, image)
     if faces is None:
         return None
@@ -71,46 +64,17 @@ async def save_embedding(image_path: str, name: str, tg_id: str):
     face = faces[0].unsqueeze(0).to(device)
     embedding = resnet(face).detach().cpu().numpy()[0]
     known_embeddings[name] = embedding
+    await rq.save_embedding(name, tg_id, embedding)  # Вызов функции из requests.py
     return embedding
 
 
 async def find_user_in_photos(user_embedding: np.ndarray, k=5):
     """Поиск пользователя в базе фотографий с использованием Faiss"""
-    index = known_embeddings_index
-    D, I = index.search(user_embedding.reshape(1, -1), k)
-
-    async with async_session_photo() as session:
-        result = await session.execute(
-            select(Photo.file_path).where(Photo.embedding_idx.in_(I[0].tolist()))
-        )
-        return [row[0] for row in result.scalars()]
-
+    return await rq.find_user_in_photos(user_embedding, k)  # Вызов функции из requests.py
 
 async def get_photos_by_name(name: str, k=100):
     """Поиск фотографий по имени человека"""
-    async with async_session() as session:
-        # Получаем эмбеддинг
-        result = await session.execute(
-            select(FaceEmbedding).where(FaceEmbedding.name == name)
-        )
-        face_embedding = result.scalar_one_or_none()
-
-    if not face_embedding:
-        return []
-
-    # Ищем в Faiss
-    user_embedding = np.frombuffer(face_embedding.embedding, dtype=np.float32)
-    index = known_embeddings_index
-    D, I = index.search(user_embedding.reshape(1, -1), k)
-
-    # Получаем пути к файлам (исправленный код)
-    async with async_session_photo() as session:
-        result = await session.execute(
-            select(Photo.file_path).where(
-                Photo.embedding_idx.in_(I[0].tolist())
-            )
-        )
-        return [row[0] for row in result]  # Получаем первый элемент кортежа
+    return await rq.get_photos_by_name(name, k)  # Вызов функции из requests.py
 
 # def load_embeddings():
 #     embeddings = {}
