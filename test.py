@@ -1,9 +1,32 @@
+import torch
+import torchvision  # Добавьте эту строку
+
+
+print(torch.cuda.is_available())  # Should output "True"
+
+print(torch.__version__)          # Должно быть >= 1.10.0
+print(torchvision.__version__)    # Должно быть >= 0.11.0
+
+# print(f"PyTorch version: {torch.__version__}")
+# print(f"CUDA available: {torch.cuda.is_available()}")
+# print(f"CUDA devices: {torch.cuda.device_count()}")
+# print(f"Current device: {torch.cuda.current_device()}")
+# print(f"Device name: {torch.cuda.get_device_name(0)}")
+#
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# x = torch.tensor([1.0], device=device)
+# print(f"Tensor device: {x.device}")
+
+
+
 # # 9. Проверка работы всех библиотек вместе
 # from facenet_pytorch import MTCNN, InceptionResnetV1
 # import torch
 # from PIL import Image
 # import cv2
 # import numpy as np
+
+
 #
 # # Загрузка изображения
 # image_path = "test_image.jpg"

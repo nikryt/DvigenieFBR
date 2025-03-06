@@ -1,8 +1,7 @@
 import logging
-from pathlib import Path
-
 import faiss
 import numpy as np
+from pathlib import Path
 
 # Глобальный кеш эмбеддингов (инициализируется при старте)
 known_embeddings = {}
@@ -28,9 +27,20 @@ def get_known_embeddings():
 PHOTOS_DIR = Path("user_photos")
 FAISS_INDEX_PATH = "embeddings.faiss"
 
-# Добавьте новую конфигурацию для индекса эмбеддингов лиц
+# # проверяем что в файле просто тест
+# index = faiss.read_index("embeddings.faiss")
+# print(f"Количество эмбеддингов в индексе фотографий: {index.ntotal}")
+# # проверяем что в файле просто тест
+
+
+# Добавьте новую конфигурацию для индекса отдельных эмбеддингов лиц
 FACE_EMBED_INDEX_PATH = "face_embeds.faiss"
 FACE_EMBEDDING_DIM = 512  # Размерность эмбеддинга
+
+# # проверяем что в файле просто тест
+# face_index = faiss.read_index("face_embeds.faiss")
+# print(f"Количество эмбеддингов пользователей: {face_index.ntotal}")
+# # проверяем что в файле просто тест
 
 # Инициализация индекса для эмбеддингов лиц
 try:

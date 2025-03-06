@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.database.models import User, async_session
 # from app.recognition.face import recognize_face, save_embedding, mtcnn, get_photos_by_name
-from config import known_embeddings
+# from config import known_embeddings
 
 
 import app.database.requests as rq
@@ -380,10 +380,16 @@ async def cancel_handler(message: Message, state: FSMContext):
 
 @router.message(F.text.lower() == "найди")
 async def scan_photos_handler(message: Message):
-    """Запуск обработки фотографий в папке"""
-    await message.answer("Начало обработки фотографий...")
-    await rq.process_directory()
-    await message.answer("Обработка завершена! Найдено новых фото: ...")
+    await message.answer("⏳ Начало обработки фотографий...")
+    new_faces = await rq.process_directory()
+    await message.answer(f"✅ Обработка завершена! Найдено новых лиц: {new_faces}")
+
+# @router.message(F.text.lower() == "найди")
+# async def scan_photos_handler(message: Message):
+#     """Запуск обработки фотографий в папке"""
+#     await message.answer("Начало обработки фотографий...")
+#     await rq.process_directory()
+#     await message.answer("Обработка завершена! Найдено новых фото: ...")
 
 # #___________________________________________________________________________________________________________________
 # #   Отправка всех найденных фото текстом
@@ -420,13 +426,13 @@ async def find_photos_handler(message: Message):
     """Обработчик поиска с отправкой альбомами"""
     try:
         name = message.text.split(" ", 1)[1].strip()
-        photos = await fc.get_photos_by_name(name)
+        photos = await rq.get_photos_by_name(name)
 
         if not photos:
             await message.answer(f"Фотографии с именем {name} не найдены.")
             return
 
-        base_path = "./"
+        base_path = "./user_photos/"
         total = len(photos)
         await message.answer(f"📁 Найдено {total} фото. Формирую альбомы...")
 

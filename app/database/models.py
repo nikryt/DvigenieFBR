@@ -21,7 +21,7 @@ BasePhoto = declarative_base()
 class User(BaseFace):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
-    tg_id = Column(BigInteger, nullable=False)  # Убрали unique=True
+    tg_id = Column(BigInteger, nullable=False)  # Убрали unique=True что бы один пользователь мог добавить несоклько имён.
     # tg_id = Column(BigInteger, unique=True, nullable=False)  # ID в Telegram уникальный
     name = Column(String(100), nullable=False)               # Основное имя
     created_at = Column(DateTime, default=datetime.now)
@@ -61,8 +61,9 @@ class Photo(BasePhoto):
     __tablename__ = "photos"
 
     id = Column(Integer, primary_key=True)
-    file_path = Column(String(255), unique=True)  # Добавлен unique=True
-    embedding_idx = Column(Integer)
+    file_path = Column(String(255), unique=False)  # удалён unique=True
+    embedding_idx = Column(Integer)  # Индекс эмбеддинга в FAISS
+    face_index = Column(Integer)  # Индекс лица на фотографии (0, 1, 2, ...)
     processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, default=datetime.now)
 

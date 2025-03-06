@@ -229,13 +229,16 @@ async def save_embedding(image_path: str, name: str, tg_id: str):
 #     return embedding
 
 
-async def find_user_in_photos(user_embedding: np.ndarray, k=5):
-    """Поиск пользователя в базе фотографий с использованием Faiss"""
-    return await rq.find_user_in_photos(user_embedding, k)  # Вызов функции из requests.py
+# async def find_user_in_photos(user_embedding: np.ndarray, k=5):
+#     """Поиск пользователя в базе фотографий с использованием Faiss"""
+#     return await rq.find_user_in_photos(user_embedding, k)  # Вызов функции из requests.py
 
-async def get_photos_by_name(name: str, k=100):
-    """Поиск фотографий по имени человека"""
-    return await rq.get_photos_by_name(name, k)  # Вызов функции из requests.py
+
+
+# Зачем-то дублирование
+# async def get_photos_by_name(name: str, k=100):
+#     """Поиск фотографий по имени человека"""
+#     return await rq.get_photos_by_name(name, k)  # Вызов функции из requests.py
 
 # def load_embeddings():
 #     embeddings = {}
