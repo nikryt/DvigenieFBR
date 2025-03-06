@@ -28,7 +28,9 @@ mtcnn = MTCNN(
     # min_face_size=100,  # Минимальный размер лица
     # margin=20     # Отступ вокруг лица
 )
+
 resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+
 
 
 
@@ -174,15 +176,14 @@ async def recognize_face(image_path, threshold=0.56):
 #     return None
 
 async def save_embedding(image_path: str, name: str, tg_id: str):
-    """Сохранение эмбеддинга в БД"""
+    """Извлечение и сохранение эмбеддинга."""
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
     faces = mtcnn(image)
     if faces is None:
-        logging.warning("Лицо не обнаружено на фотографии.")
         return None
 
     face = faces[0].unsqueeze(0).to(device)
-    embedding = resnet(face).detach().cpu().numpy()[0]  # Извлекаем эмбеддинг
+    embedding = resnet(face).detach().cpu().numpy()[0]
     embedding = embedding / np.linalg.norm(embedding)  # Нормализация
     logging.info(f"Эмбеддинг для {name} успешно извлечён.")
 
@@ -196,11 +197,10 @@ async def save_embedding(image_path: str, name: str, tg_id: str):
             logging.warning(f"Duplicate embedding for {name} detected")
             return None
 
-    # Сохраняем нормализованный эмбеддинг
-    await rq.save_embedding(name, tg_id, embedding)
-    return embedding
+    # Сохраняем эмбеддинг через requests.py
+    return await rq.save_embedding(name, tg_id, embedding)
 
-# Ошибка где-то
+# Работало, начал новую базу
 # async def save_embedding(image_path: str, name: str, tg_id: str):
 #     """Сохранение эмбеддинга в БД"""
 #     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
@@ -210,12 +210,22 @@ async def save_embedding(image_path: str, name: str, tg_id: str):
 #         return None
 #
 #     face = faces[0].unsqueeze(0).to(device)
-#     embedding = resnet(face).detach().cpu().numpy()[0]  # Эмбеддинг уже имеет форму (n,)
-#     logging.info(f"Эмбеддинг для {name} успешно извлечён.")
-#     known_embeddings[name] = embedding
-#     embedding = resnet(faces).detach().cpu().numpy()[0]
+#     embedding = resnet(face).detach().cpu().numpy()[0]  # Извлекаем эмбеддинг
 #     embedding = embedding / np.linalg.norm(embedding)  # Нормализация
-#     await rq.save_embedding(name, tg_id, embedding)  # Вызов функции из requests.py
+#     logging.info(f"Эмбеддинг для {name} успешно извлечён.")
+#
+#     # Проверка на дубликаты
+#     if name in known_embeddings:
+#         similarities = []
+#         for existing in known_embeddings[name]:
+#             similarities.append(cosine_similarity([embedding], [existing])[0][0])
+#
+#         if max(similarities) > 0.92:  # Порог дубликата
+#             logging.warning(f"Duplicate embedding for {name} detected")
+#             return None
+#
+#     # Сохраняем нормализованный эмбеддинг
+#     await rq.save_embedding(name, tg_id, embedding)
 #     return embedding
 
 

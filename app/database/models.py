@@ -1,9 +1,9 @@
 import os
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, LargeBinary, BigInteger, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, LargeBinary, BigInteger, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import mapped_column, sessionmaker, declarative_base
+from sqlalchemy.orm import mapped_column, sessionmaker, declarative_base, relationship
 from dotenv import load_dotenv
 
 # Настройка подключения к БД
@@ -16,15 +16,36 @@ async_session_photo = sessionmaker(enginephoto, class_=AsyncSession, expire_on_c
 BaseFace = declarative_base()
 BasePhoto = declarative_base()
 
-# Новый класс с несколькими эимбеддингами на челоека
-class FaceEmbedding(BaseFace):
-    __tablename__ = "face_embeddings"
-
+# отдельные таблицы для пользователей и их эмбеддингов
+# Пользователи
+class User(BaseFace):
+    __tablename__ = "users"
     id = Column(Integer, primary_key=True)
-    tg_id = mapped_column(BigInteger)  # ID пользователя, который добавил эмбеддинг
-    name = Column(String, nullable=False)  # Имя человека
-    embedding = Column(LargeBinary, nullable=False)  # Эмбеддинг
-    created_at = Column(DateTime, default=datetime.now)  # Время добавления эмбеддинга
+    tg_id = Column(BigInteger, nullable=False)  # Убрали unique=True
+    # tg_id = Column(BigInteger, unique=True, nullable=False)  # ID в Telegram уникальный
+    name = Column(String(100), nullable=False)               # Основное имя
+    created_at = Column(DateTime, default=datetime.now)
+    embeddings = relationship("FaceEmbedding", back_populates="user", cascade="all, delete-orphan")
+
+
+# Эмбеддинги
+class FaceEmbedding(BaseFace):
+    __tablename__ = "embeddings"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    embedding = Column(LargeBinary, nullable=False)          # Бинарные данные
+    created_at = Column(DateTime, default=datetime.now)
+    user = relationship("User", back_populates="embeddings")
+
+# # Новый класс с несколькими эимбеддингами на челоека
+# class FaceEmbedding(BaseFace):
+#     __tablename__ = "face_embeddings"
+#
+#     id = Column(Integer, primary_key=True)
+#     tg_id = mapped_column(BigInteger)  # ID пользователя, который добавил эмбеддинг
+#     name = Column(String, nullable=False)  # Имя человека
+#     embedding = Column(LargeBinary, nullable=False)  # Эмбеддинг
+#     created_at = Column(DateTime, default=datetime.now)  # Время добавления эмбеддинга
 
 #старый класс с одним эмеддингом
 # class FaceEmbedding(BaseFace):

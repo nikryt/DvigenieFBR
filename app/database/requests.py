@@ -4,23 +4,43 @@ import sqlalchemy as sa
 import numpy as np
 import faiss
 
+
 from config import PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index, FACE_EMBED_INDEX_PATH, \
     FACE_EMBEDDING_DIM, face_embeds_index, known_embeddings_names
 from pathlib import Path
 from sqlalchemy import select
-from .models import FaceEmbedding, async_session, Photo, async_session_photo
+from app.database.models import FaceEmbedding, async_session, Photo, async_session_photo, User
 
-# Новая функция добавления нескольких эмбеддингов
-async def add_embedding(name: str, tg_id: str, embedding: np.ndarray):
+# отдельные таблицы для пользователей и их эмбеддингов
+async def add_embedding(user_tg_id: int, user_name: str, embedding: np.ndarray):
     async with async_session() as session:
-        try:
-            embedding_bytes = embedding.tobytes()
-            new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
-            session.add(new_face)
+        # Найти или создать пользователя
+        user = await session.execute(
+            select(User).where(User.tg_id == user_tg_id)
+        ).scalar_one_or_none()
+        if not user:
+            user = User(tg_id=user_tg_id, name=user_name)
+            session.add(user)
             await session.commit()
-        except Exception as e:
-            await session.rollback()
-            raise e
+
+        # Сохранить эмбеддинг
+        embedding_bytes = embedding.tobytes()
+        new_embedding = FaceEmbedding(user_id=user.id, embedding=embedding_bytes)
+        session.add(new_embedding)
+        await session.commit()
+
+
+# # Новая функция добавления нескольких эмбеддингов
+# async def add_embedding(name: str, tg_id: str, embedding: np.ndarray):
+#     async with async_session() as session:
+#         try:
+#             embedding_bytes = embedding.tobytes()
+#             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
+#             session.add(new_face)
+#             await session.commit()
+#         except Exception as e:
+#             await session.rollback()
+#             raise e
 
 # Старая функция добавления эмбеддинга
 # async def add_embedding(name: str, tg_id: str, embedding: np.ndarray):
@@ -49,36 +69,33 @@ async def get_embedding_by_name(name: str):
 
 
 async def load_embeddings():
+    """Загрузка эмбеддингов из БД и обновление FAISS индекса."""
     global known_embeddings
     known_embeddings = {}
 
-    index = faiss.IndexFlatL2(FACE_EMBEDDING_DIM)
-    names_list = []
-
     async with async_session() as session:
-        result = await session.execute(select(FaceEmbedding))
-        for row in result.scalars():
-            # Создаем копию массива, чтобы он был доступен для изменения
-            embedding = np.frombuffer(row.embedding, dtype=np.float32).copy()
+        result = await session.execute(
+            select(User.name, FaceEmbedding.embedding)
+            .join(FaceEmbedding.user)
+        )
 
-            # Нормализация эмбеддинга
-            embedding /= np.linalg.norm(embedding)
+        for name, emb in result:
+            embedding = np.frombuffer(emb, dtype=np.float32).copy()
+            embedding = embedding / np.linalg.norm(embedding)
 
-            # Добавляем эмбеддинг в словарь
-            if row.name not in known_embeddings:
-                known_embeddings[row.name] = []
-            known_embeddings[row.name].append(embedding)
+            if name not in known_embeddings:
+                known_embeddings[name] = []
+            known_embeddings[name].append(embedding)
 
-            # Добавляем эмбеддинг в индекс FAISS
-            index.add(embedding.reshape(1, -1))
-            names_list.append(row.name)
+            # Добавляем в FAISS индекс
+            face_embeds_index.add(embedding.reshape(1, -1))
+            known_embeddings_names.append(name)
 
-    # Сохраняем индекс FAISS и список имен
-    faiss.write_index(index, FACE_EMBED_INDEX_PATH)
-    np.save("face_names.npy", names_list)
+    # Сохраняем обновленные данные
+    faiss.write_index(face_embeds_index, FACE_EMBED_INDEX_PATH)
+    np.save("face_names.npy", known_embeddings_names)
 
     return known_embeddings
-
 
 # Работало, но начал обновлять с индексами faiss
 # async def load_embeddings():
@@ -222,22 +239,56 @@ async def update_faiss_index(embeddings: np.ndarray, file_path: str):
         await session.commit()
 
 
-# Новая функция добаления эмбеддингов. Теперь функция просто добавляет новый эмбеддинг
-# в базу данных, даже если имя уже существует.
 async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
-    """Сохранение эмбеддинга в БД"""
+    """Сохранение эмбеддинга в БД с привязкой к пользователю."""
     async with async_session() as session:
         try:
+            # Находим или создаем пользователя
+            user = await session.execute(
+                select(User).where(User.name == name)
+            )
+            user = user.scalar_one_or_none()
+
+            if not user:
+                # Создаем нового пользователя
+                user = User(name=name, tg_id=tg_id)
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+
+            # Сохраняем эмбеддинг
             embedding_bytes = embedding.tobytes()
-            new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
-            session.add(new_face)
+            new_embedding = FaceEmbedding(
+                user_id=user.id,
+                embedding=embedding_bytes
+            )
+            session.add(new_embedding)
             await session.commit()
 
             # Обновляем кеш и индекс FAISS
             await update_cache_and_index(name, embedding)
+            return embedding
+
         except Exception as e:
             await session.rollback()
             raise e
+
+# # Новая функция добаления эмбеддингов. Теперь функция просто добавляет новый эмбеддинг
+# # в базу данных, даже если имя уже существует.
+# async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
+#     """Сохранение эмбеддинга в БД"""
+#     async with async_session() as session:
+#         try:
+#             embedding_bytes = embedding.tobytes()
+#             new_face = FaceEmbedding(name=name, tg_id=tg_id, embedding=embedding_bytes)
+#             session.add(new_face)
+#             await session.commit()
+#
+#             # Обновляем кеш и индекс FAISS
+#             await update_cache_and_index(name, embedding)
+#         except Exception as e:
+#             await session.rollback()
+#             raise e
 
 # Функция с добавления эмбеддингов с проверкой на существование имени в базе данныхэ
 # async def save_embedding(name: str, tg_id: str, embedding: np.ndarray):
@@ -293,18 +344,34 @@ async def get_photos_by_name(name: str, k=100):
         )
         return [row[0] for row in result]
 
+
 async def get_all_names():
-    """Возвращает список всех уникальных имён из базы данных."""
+    """Получение уникальных имён пользователей из таблицы users."""
     async with async_session() as session:
-        result = await session.execute(select(FaceEmbedding.name).distinct())
-        names = [row[0] for row in result]
-        return names
+        result = await session.execute(select(User.name).distinct())
+        return [row[0] for row in result]
+
+# Работало
+# async def get_all_names():
+#     """Возвращает список всех уникальных имён из базы данных."""
+#     async with async_session() as session:
+#         result = await session.execute(select(FaceEmbedding.name).distinct())
+#         names = [row[0] for row in result]
+#         return names
+
 
 async def check_name_exists(name: str) -> bool:
-    """Проверяет, существует ли имя в базе данных."""
+    """Проверяет, существует ли имя в таблице users."""
     async with async_session() as session:
-        result = await session.execute(select(FaceEmbedding).where(FaceEmbedding.name == name))
+        result = await session.execute(select(User).where(User.name == name))
         return result.scalars().first() is not None
+
+# Работало, начал добавлять FAISS и другую базу
+# async def check_name_exists(name: str) -> bool:
+#     """Проверяет, существует ли имя в базе данных."""
+#     async with async_session() as session:
+#         result = await session.execute(select(FaceEmbedding).where(FaceEmbedding.name == name))
+#         return result.scalars().first() is not None
 
 async def update_cache_and_index(name: str, embedding: np.ndarray):
     """Обновляет кеш эмбеддингов и индекс FAISS."""

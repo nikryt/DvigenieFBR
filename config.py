@@ -9,8 +9,17 @@ known_embeddings = {}
 
 def update_known_embeddings(new_embeddings):
     global known_embeddings
-    known_embeddings = new_embeddings
+    # Теперь grouped by user name
+    known_embeddings = {
+        name: [emb for embs in new_embeddings.values() for emb in embs]
+        for name in new_embeddings
+    }
     logging.info(f"Обновлено эмбеддингов: {len(known_embeddings)}")
+
+# def update_known_embeddings(new_embeddings):
+#     global known_embeddings
+#     known_embeddings = new_embeddings
+#     logging.info(f"Обновлено эмбеддингов: {len(known_embeddings)}")
 
 def get_known_embeddings():
     return known_embeddings

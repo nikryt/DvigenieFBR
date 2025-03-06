@@ -8,8 +8,9 @@ from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from sqlalchemy import select
 
-
+from app.database.models import User, async_session
 # from app.recognition.face import recognize_face, save_embedding, mtcnn, get_photos_by_name
 from config import known_embeddings
 
@@ -137,8 +138,12 @@ async def add_embeddings_handler(message: Message, state: FSMContext):
 
 @router.message(AddFaceState.waiting_for_name_selection)
 async def name_selection_handler(message: Message, state: FSMContext):
-    """Обработка выбора имени для добавления эмбеддингов"""
+    """Обработка выбора имени для добавления эмбеддингов."""
     selected_name = message.text.strip()
+
+    if not selected_name:
+        await message.answer("Имя не может быть пустым. Попробуйте снова.")
+        return
 
     # Проверяем, что выбранное имя есть в базе данных
     if not await rq.check_name_exists(selected_name):
@@ -150,17 +155,35 @@ async def name_selection_handler(message: Message, state: FSMContext):
     await message.answer(f"Вы выбрали имя: {selected_name}. Теперь отправьте фото для добавления эмбеддингов.")
     await state.set_state(AddFaceState.waiting_for_new_photo)
 
+# Работало, начал добавлять новую базу
+# @router.message(AddFaceState.waiting_for_name_selection)
+# async def name_selection_handler(message: Message, state: FSMContext):
+#     """Обработка выбора имени для добавления эмбеддингов"""
+#     selected_name = message.text.strip()
+#
+#     # Проверяем, что выбранное имя есть в базе данных
+#     if not await rq.check_name_exists(selected_name):
+#         await message.answer("Имя не найдено в базе данных. Попробуйте снова.")
+#         return
+#
+#     # Сохраняем выбранное имя в состоянии
+#     await state.update_data(selected_name=selected_name)
+#     await message.answer(f"Вы выбрали имя: {selected_name}. Теперь отправьте фото для добавления эмбеддингов.")
+#     await state.set_state(AddFaceState.waiting_for_new_photo)
 
-
-# Обработчик, который будет обрабатывать фотографии, отправленные после выбора имени
 @router.message(AddFaceState.waiting_for_new_photo, lambda message: message.photo)
 async def add_new_embedding_photo_handler(message: Message, state: FSMContext, bot: Bot):
-    """Обработка новой фотографии для добавления эмбеддинга"""
+    """Обработка новой фотографии для добавления эмбеддинга."""
     try:
         # Получаем данные из состояния (выбранное имя)
         data = await state.get_data()
         selected_name = data.get("selected_name")
         tg_id = message.from_user.id
+
+        if not selected_name:
+            await message.answer("Ошибка: имя не найдено в состоянии. Попробуйте снова.")
+            await state.clear()
+            return
 
         # Скачиваем фото
         photo = message.photo[-1]
@@ -187,9 +210,50 @@ async def add_new_embedding_photo_handler(message: Message, state: FSMContext, b
         await state.clear()
 
     except Exception as e:
-        logger.error(f"Ошибка добавления эмбеддинга: {str(e)}")
+        logger.error(f"Ошибка добавления эмбеддинга: {str(e)}", exc_info=True)
         await message.answer("Произошла ошибка при обработке фото.")
         await state.clear()
+
+
+# Работало. начал новую базу
+# # Обработчик, который будет обрабатывать фотографии, отправленные после выбора имени
+# @router.message(AddFaceState.waiting_for_new_photo, lambda message: message.photo)
+# async def add_new_embedding_photo_handler(message: Message, state: FSMContext, bot: Bot):
+#     """Обработка новой фотографии для добавления эмбеддинга"""
+#     try:
+#         # Получаем данные из состояния (выбранное имя)
+#         data = await state.get_data()
+#         selected_name = data.get("selected_name")
+#         tg_id = message.from_user.id
+#
+#         # Скачиваем фото
+#         photo = message.photo[-1]
+#         download_path = await download_photo(bot, photo.file_id, "add_")
+#
+#         # Проверяем фото на наличие одного лица
+#         if not await validate_photo(download_path):
+#             await message.answer("Проблемы с фото. Проверьте требования и попробуйте снова.")
+#             os.remove(download_path)
+#             await state.clear()
+#             return
+#
+#         # Сохраняем эмбеддинг в базу данных
+#         embed = await fc.save_embedding(download_path, selected_name, tg_id)
+#         if embed is not None:
+#             await message.answer(f"✅ Новый эмбеддинг для {selected_name} успешно добавлен!")
+#         else:
+#             await message.answer("❌ Ошибка при добавлении эмбеддинга.")
+#
+#         # Удаляем временный файл
+#         os.remove(download_path)
+#
+#         # Очищаем состояние
+#         await state.clear()
+#
+#     except Exception as e:
+#         logger.error(f"Ошибка добавления эмбеддинга: {str(e)}")
+#         await message.answer("Произошла ошибка при обработке фото.")
+#         await state.clear()
 
 
 # Обновим обработчик добавления лиц
@@ -247,9 +311,19 @@ async def add_face_photo_handler(message: Message, state: FSMContext, bot: Bot):
 
 @router.message(AddFaceState.waiting_for_name)
 async def add_face_name_handler(message: Message, state: FSMContext):
-    """Обработка ввода имени"""
+    """Обработка ввода имени с проверкой уникальности."""
     name = message.text.strip()
     tg_id = message.from_user.id
+
+    # Проверка существования имени у других пользователей
+    async with async_session() as session:
+        existing = await session.execute(
+            select(User).where(User.name == name)
+        )
+        if existing.scalars().first():
+            await message.answer("⚠️ Это имя уже используется другим пользователем!")
+            return
+
     if not name.replace(' ', '').isalnum():
         await message.answer("Имя должно содержать только буквы, цифры и пробелы")
         return
@@ -264,17 +338,20 @@ async def add_face_name_handler(message: Message, state: FSMContext):
 
 @router.callback_query(AddFaceState.confirmation)
 async def confirmation_handler(callback: CallbackQuery, state: FSMContext):
-    """Обработка подтверждения"""
+    """Обработка подтверждения."""
     data = await state.get_data()
     photo_path = data.get('photo_path')
+    name = data.get('name')
+    tg_id = data.get('tg_id')
 
     try:
         if callback.data == "confirm_add":
-            embed = await fc.save_embedding(data['photo_path'], data['name'], data['tg_id'])  # Добавляем data['name']
-            # await add_embedding(name=data['name'], tg_id=data['tg_id'], embedding=embed)
-            await callback.message.answer("✅ Человек успешно добавлен в базу!")
-            # Обновляем кеш эмбеддингов
-            known_embeddings[data['name']] = embed  # Добавляем в словарь
+            # Сохраняем эмбеддинг
+            embed = await fc.save_embedding(photo_path, name, tg_id)
+            if embed is not None:
+                await callback.message.answer("✅ Человек успешно добавлен в базу!")
+            else:
+                await callback.message.answer("❌ Ошибка при добавлении эмбеддинга.")
         else:
             await callback.message.answer("❌ Добавление отменено")
 
