@@ -9,7 +9,7 @@ import faiss
 from sqlalchemy.orm import selectinload
 
 from config import (PHOTOS_DIR, FAISS_INDEX_PATH, known_embeddings_index, FACE_EMBED_INDEX_PATH,
-                    face_embeds_index, known_embeddings_names)
+                    face_embeds_index, known_embeddings_names, FACE_EMBEDDING_DIM)
 
 from sqlalchemy import select
 from app.database.models import FaceEmbedding, async_session, Photo, async_session_photo, User
@@ -228,8 +228,10 @@ async def process_directory():
 
                     # Сохраняем записи в базу
                     for face_idx in range(embeddings.shape[0]):
+                        embedding_bytes = embeddings[face_idx].tobytes()  # Конвертируем эмбеддинг
                         photo = Photo(
                             file_path=img_rel_path,
+                            embedding=embedding_bytes,  # Сохраняем эмбеддинг
                             embedding_idx=start_idx + face_idx,
                             face_index=face_idx,
                             processed=True,
@@ -250,6 +252,103 @@ async def process_directory():
     except Exception as e:
         logging.error(f"Фатальная ошибка: {str(e)}", exc_info=True)
         return 0
+
+
+async def cleanup_missing_files():
+    """Удаляет записи об отсутствующих файлах из базы данных и обновляет FAISS индекс."""
+    try:
+        # Собираем актуальные файлы в папке
+        existing_files = set()
+        for root, _, files in os.walk(PHOTOS_DIR):
+            for file in files:
+                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    rel_path = os.path.relpath(
+                        os.path.join(root, file),
+                        start=str(PHOTOS_DIR)
+                    )
+                    existing_files.add(rel_path)
+
+        # Получаем записи из базы данных
+        async with async_session_photo() as session:
+            # Получаем все пути из базы одним запросом
+            result = await session.execute(select(Photo.file_path))
+            db_files = {row for row in result.scalars()}
+
+            # Находим отсутствующие файлы (есть в базе, но нет в папке)
+            missing_files = db_files - existing_files
+
+            if missing_files:
+                # Удаляем записи об отсутствующих файлах
+                await session.execute(
+                    sa.delete(Photo).where(Photo.file_path.in_(missing_files))
+                )
+                await session.commit()
+                logging.info(f"Удалено {len(missing_files)} отсутствующих файлов")
+                if missing_files:
+                    logging.info(f"Удаленные файлы: {missing_files}")
+                else:
+                    logging.info("Отсутствующие файлы не обнаружены")
+
+                # Перестраиваем FAISS индекс
+                await rebuild_faiss_index()
+
+        return len(missing_files)
+    except Exception as e:
+        logging.error(f"Ошибка очистки: {str(e)}", exc_info=True)
+        return 0
+
+
+async def rebuild_faiss_index():
+    """Перестраивает индекс FAISS на основе эмбеддингов из таблицы photos"""
+    try:
+        # Инициализация нового индекса
+        new_index = faiss.IndexFlatL2(FACE_EMBEDDING_DIM)  # Используйте нужную размерность
+
+        # Получаем все обработанные записи с эмбеддингами, отсортированные по embedding_idx
+        async with async_session_photo() as session:
+            result = await session.execute(
+                select(Photo)
+                .where(Photo.processed == True)
+                .where(Photo.embedding != None)
+                .order_by(Photo.embedding_idx)
+            )
+            photos = result.scalars().all()
+
+        # Собираем эмбеддинги в правильном порядке
+        embeddings_list = []
+        for photo in photos:
+            try:
+                # Преобразование из bytes в numpy array
+                embed_array = np.frombuffer(photo.embedding, dtype=np.float32)
+                if embed_array.shape[0] != FACE_EMBEDDING_DIM:
+                    logging.warning(f"Некорректная размерность эмбеддинга у записи {photo.id}")
+                    continue
+                embeddings_list.append(embed_array)
+            except Exception as e:
+                logging.error(f"Ошибка преобразования эмбеддинга (ID {photo.id}): {str(e)}")
+                continue
+
+        if not embeddings_list:
+            logging.warning("Нет валидных эмбеддингов для перестроения индекса")
+            return False
+
+        # Собираем в матрицу и добавляем в индекс
+        embeddings_matrix = np.vstack(embeddings_list).astype(np.float32)
+        new_index.add(embeddings_matrix)
+
+        # Перезаписываем индекс
+        faiss.write_index(new_index, FAISS_INDEX_PATH)
+        logging.info(f"Индекс перестроен. Элементов: {new_index.ntotal}")
+        return True
+
+    except Exception as e:
+        logging.error(f"Ошибка перестроения индекса: {str(e)}", exc_info=True)
+        return False
+        logging.info("FAISS индекс успешно перестроен с нормализацией")
+
+
+
+
 
 
 # Рекомендуемые параметры:
@@ -281,6 +380,19 @@ async def get_photos_by_name(name: str, threshold: float = 0.60, k_nearest: int 
             logging.info(f"Найдено валидных эмбеддингов: {len(valid_embeddings)}")
 
         # 3. Поиск в FAISS с явным приведением типов
+        # all_matches = set()
+        # for embed in valid_embeddings:
+        #     embed_norm = embed / np.linalg.norm(embed)
+        #     query = embed_norm.astype(np.float32).reshape(1, -1)
+        #
+        #     # Для IndexFlatIP используем прямое значение расстояния как сходство
+        #     distances, indices = known_embeddings_index.search(query, k_nearest)
+        #
+        #     # Исправленное условие для Inner Product (косинусное сходство)
+        #     matches = [int(idx) for idx, dist in zip(indices[0], distances[0])
+        #                if dist >= threshold]  # Убрано преобразование 1-0.5*dist
+        #     all_matches.update(matches)
+
         all_matches = set()
         for embed in valid_embeddings:
             embed_norm = embed / np.linalg.norm(embed)
@@ -291,6 +403,7 @@ async def get_photos_by_name(name: str, threshold: float = 0.60, k_nearest: int 
             matches = [int(idx) for idx, dist in zip(indices[0], distances[0])
                        if (1 - 0.5 * dist) >= threshold]
             all_matches.update(matches)
+
             logging.info(f"Найдено совпадений: {matches}")
 
         # 4. Запрос к базе данных с проверкой существования индексов

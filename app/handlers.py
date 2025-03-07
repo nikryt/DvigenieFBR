@@ -384,6 +384,16 @@ async def scan_photos_handler(message: Message):
     new_faces = await rq.process_directory()
     await message.answer(f"✅ Обработка завершена! Найдено новых лиц: {new_faces}")
 
+@router.message(F.text.lower() == "проверь")
+async def scan_photos_handler(message: Message):
+    await message.answer("⏳ Начало обработки фотографий...")
+    del_file = await rq.cleanup_missing_files()
+    await message.answer(f"✅ Обработка завершена! удалено: {del_file} отсутствующих файлов")
+    # new_faces = await rq.process_directory()
+    # await message.answer(f"✅ Обработка завершена! Найдено новых лиц: {new_faces}")
+
+
+
 # @router.message(F.text.lower() == "найди")
 # async def scan_photos_handler(message: Message):
 #     """Запуск обработки фотографий в папке"""

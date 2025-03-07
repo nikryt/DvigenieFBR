@@ -6,7 +6,10 @@ def get_start_keyboard():
     builder.button(text="Добавить лицо")
     builder.button(text="Добавить эмбеддинги")
     builder.button(text="Отмена")
-    builder.adjust(2, 1, 1)
+    builder.button(text="найди")
+    builder.button(text="проверь")
+    builder.button(text="Найти Никита")
+    builder.adjust(2, 1, 1, 3)
     return builder.as_markup(resize_keyboard=True)
 
 def get_confirmation_keyboard():

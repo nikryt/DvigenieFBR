@@ -61,11 +61,23 @@ class Photo(BasePhoto):
     __tablename__ = "photos"
 
     id = Column(Integer, primary_key=True)
-    file_path = Column(String(255), unique=False)  # удалён unique=True
-    embedding_idx = Column(Integer)  # Индекс эмбеддинга в FAISS
-    face_index = Column(Integer)  # Индекс лица на фотографии (0, 1, 2, ...)
+    file_path = Column(String(255), unique=False)
+    embedding = Column(LargeBinary)  # Новое поле для хранения эмбеддинга
+    embedding_idx = Column(Integer) # Индекс эмбеддинга в FAISS
+    face_index = Column(Integer) # Индекс лица на фотографии (0, 1, 2, ...)
     processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, default=datetime.now)
+
+
+# class Photo(BasePhoto):
+#     __tablename__ = "photos"
+#
+#     id = Column(Integer, primary_key=True)
+#     file_path = Column(String(255), unique=False)  # удалён unique=True
+#     embedding_idx = Column(Integer)  # Индекс эмбеддинга в FAISS
+#     face_index = Column(Integer)  # Индекс лица на фотографии (0, 1, 2, ...)
+#     processed = Column(Boolean, default=False)
+#     processed_at = Column(DateTime, default=datetime.now)
 
 
 async  def async_main():
