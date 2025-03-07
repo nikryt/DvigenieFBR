@@ -152,7 +152,7 @@ async def name_selection_handler(message: Message, state: FSMContext):
 
     # Сохраняем выбранное имя в состоянии
     await state.update_data(selected_name=selected_name)
-    await message.answer(f"Вы выбрали имя: {selected_name}. Теперь отправьте фото для добавления эмбеддингов.")
+    await message.answer(f"Вы выбрали имя: {selected_name}. Теперь отправьте фото для добавления эмбеддингов.",  reply_markup=kb.get_cancel_keyboard())
     await state.set_state(AddFaceState.waiting_for_new_photo)
 
 # Работало, начал добавлять новую базу
@@ -191,17 +191,17 @@ async def add_new_embedding_photo_handler(message: Message, state: FSMContext, b
 
         # Проверяем фото на наличие одного лица
         if not await validate_photo(download_path):
-            await message.answer("Проблемы с фото. Проверьте требования и попробуйте снова.")
+            await message.answer("Проблемы с фото. На фотографии больше одного человека.\nОтправьте другое фото.")
             os.remove(download_path)
-            await state.clear()
+            # await state.clear()
             return
 
         # Сохраняем эмбеддинг в базу данных
         embed = await fc.save_embedding(download_path, selected_name, tg_id)
         if embed is not None:
-            await message.answer(f"✅ Новый эмбеддинг для {selected_name} успешно добавлен!")
+            await message.answer(f"✅ Новый эмбеддинг для {selected_name} успешно добавлен!", reply_markup=kb.get_start_keyboard())
         else:
-            await message.answer("❌ Ошибка при добавлении эмбеддинга.")
+            await message.answer("❌ Ошибка при добавлении эмбеддинга.", reply_markup=kb.get_start_keyboard())
 
         # Удаляем временный файл
         os.remove(download_path)

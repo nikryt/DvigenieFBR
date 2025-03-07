@@ -18,15 +18,16 @@ load_dotenv()
 
 # Инициализация моделей
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"{device}")
 mtcnn = MTCNN(
     keep_all=True,
     device=device,
     thresholds=[0.6, 0.7, 0.7],  # Более мягкие пороги
-    min_face_size=40,  # Уменьшенный размер
+    min_face_size=50,  # Уменьшенный размер
     margin=10   # Отступ вокруг лица
-    # thresholds=[0.7, 0.8, 0.9], # Более строгие пороги
-    # min_face_size=100,  # Минимальный размер лица
-    # margin=20     # Отступ вокруг лица
+    # thresholds=[0.7, 0.8, 0.9],   # Более строгие пороги
+    # min_face_size=100,    # Минимальный размер лица
+    # margin=20 # Отступ вокруг лица
 )
 
 resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
