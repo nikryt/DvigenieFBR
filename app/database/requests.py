@@ -356,7 +356,7 @@ async def rebuild_faiss_index():
 # Для точного поиска: threshold=0.65, k_nearest=30
 # Для широкого поиска: threshold=0.55, k_nearest=100
 
-async def get_photos_by_name(name: str, threshold: float = 0.60, k_nearest: int = 30) -> list[str]:
+async def get_photos_by_name(name: str, threshold: float = 0.70, k_nearest: int = 30) -> list[str]:
     """Поиск фотографий по имени с исправлением ошибок индексов"""
     try:
         # 1. Получение пользователя и его эмбеддингов

@@ -431,7 +431,7 @@ async def scan_photos_handler(message: Message):
 #   Отправка всех найденных фото альбомами 10 штук в альбоме
 #___________________________________________________________________________________________________________________
 
-@router.message(F.text.startswith("Найти "))
+@router.message(F.text.lower.startswith("Найти "))
 async def find_photos_handler(message: Message):
     """Обработчик поиска с отправкой альбомами"""
     try:
