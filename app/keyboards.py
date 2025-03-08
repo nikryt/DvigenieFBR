@@ -32,3 +32,13 @@ def get_cancel_keyboard():
     builder.button(text="Отмена")
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
+
+def get_export_keyboard(names: list):
+    """Клавиатура для выбора пользователя"""
+    builder = ReplyKeyboardBuilder()
+    for name in names:
+        builder.button(text=f"🔹 {name}")
+    builder.button(text="📋 Весь список")
+    builder.button(text="❌ Отмена")
+    builder.adjust(2)
+    return builder.as_markup(resize_keyboard=True)

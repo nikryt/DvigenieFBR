@@ -653,125 +653,6 @@ async def find_user_in_photos(user_embedding: np.ndarray, k=5):
         return [str(PHOTOS_DIR / path) for path in paths]
 
 
-# async def get_photos_by_name(name: str):
-#     """Поиск фотографий по имени пользователя."""
-#     async with async_session() as session:
-#         user_result = await session.execute(
-#             select(User).where(User.name == name))
-#         user = user_result.scalar_one_or_none()
-#
-#         if not user:
-#             return []
-#
-#         embeddings_result = await session.execute(
-#             select(FaceEmbedding).where(FaceEmbedding.user_id == user.id))
-#         embeddings = embeddings_result.scalars().all()
-#
-#         photo_paths = []
-#         for emb in embeddings:
-#             embedding = np.frombuffer(emb.embedding, dtype=np.float32)
-#             paths = await find_user_in_photos(embedding)
-#             photo_paths.extend(paths)
-#             # Исправлено логирование
-#             logging.info(f"Found paths: {paths}")
-#
-#         return list(set(photo_paths))
-
-
-# async def get_photos_by_name(name: str, k=100, similarity_threshold=0.1):
-#     """Поиск фотографий по имени пользователя."""
-#     try:
-#         # Поиск пользователя в БД users
-#         async with async_session() as session_users:
-#             user = await session_users.execute(
-#                 select(User).where(func.lower(User.name) == name.lower())
-#             )
-#             user = user.scalar_one_or_none()
-#             if not user:
-#                 return []
-#
-#             # Получение эмбеддингов пользователя
-#             embeddings = await session_users.execute(
-#                 select(FaceEmbedding).where(FaceEmbedding.user_id == user.id)
-#             )
-#             embeddings = embeddings.scalars().all()
-#             if not embeddings:
-#                 return []
-#
-#         # Загрузка индекса фотографий
-#         index = faiss.read_index(FAISS_INDEX_PATH)
-#         photo_paths = []
-#
-#         # Поиск в индексе FAISS для каждого эмбеддинга пользователя
-#         for emb in embeddings:
-#             user_embedding = np.frombuffer(emb.embedding, dtype=np.float32)
-#             D, I = index.search(user_embedding.reshape(1, -1), k)
-#
-#             # Получение путей из БД photos
-#             async with async_session_photo() as session_photos:
-#                 for idx in I[0]:
-#                     result = await session_photos.execute(
-#                         select(Photo.file_path).where(Photo.embedding_idx == idx)
-#                     )
-#                     photo = result.scalar_one_or_none()
-#                     if photo:
-#                         photo_paths.append(photo.replace("\\", "/"))
-#
-#         return list(set(photo_paths))
-#     except Exception as e:
-#         logging.error(f"Ошибка: {str(e)}")
-#         return []
-#
-# async def get_photos_by_name(name: str, k=100, similarity_threshold=0.3):
-#     """Поиск фотографий по имени человека с использованием новой модели таблиц и фильтрацией по сходству."""
-#     logging.info(f"Поиск фото для имени: {name}")
-#     async with async_session() as session:
-#         # Находим пользователя по имени
-#         result = await session.execute(
-#             select(User).where(User.name == name)
-#         )
-#         user = result.scalar_one_or_none()
-#
-#         if not user:
-#             logging.info(f"Пользователь с именем {name} не найден.")
-#             return []  # Если пользователь не найден, возвращаем пустой список
-#
-#         # Получаем все эмбеддинги для этого пользователя
-#         result = await session.execute(
-#             select(FaceEmbedding).where(FaceEmbedding.user_id == user.id)
-#         )
-#         embeddings = result.scalars().all()
-#
-#         if not embeddings:
-#             logging.info(f"Эмбеддинги для пользователя {name} не найдены.")
-#             return []  # Если эмбеддинги не найдены, возвращаем пустой список
-#
-#         # Преобразуем эмбеддинги в массив numpy
-#         user_embeddings = [np.frombuffer(embedding.embedding, dtype=np.float32) for embedding in embeddings]
-#
-#         # Ищем фотографии в базе фотографий с использованием Faiss
-#         photo_paths = []
-#         for embedding in user_embeddings:
-#             index = faiss.read_index(FAISS_INDEX_PATH)  # Используем индекс фотографий
-#             D, I = index.search(embedding.reshape(1, -1), k)
-#
-#             # Фильтруем результаты по порогу сходства
-#             for i, distance in zip(I[0], D[0]):
-#                 # similarity = 1 - distance  # Преобразуем расстояние L2 в сходство
-#                 similarity = 1 / (1 + distance)  # Преобразование L2 в сходство (0..1)
-#                 if similarity > similarity_threshold:
-#                     async with async_session_photo() as session_photo:
-#                         result = await session_photo.execute(
-#                             select(Photo.file_path).where(
-#                                 Photo.embedding_idx == i
-#                             )
-#                         )
-#                         photo = result.scalar_one_or_none()
-#                         if photo:
-#                             photo_paths.append(photo)
-#                             logging.info(f"Найдена фотография: {photo}, сходство: {similarity}")
-#
-#         return list(set(photo_paths))  # Убираем дубликаты
 
 async def get_all_names():
     """Получение уникальных имён пользователей"""
@@ -779,13 +660,6 @@ async def get_all_names():
         result = await session.execute(select(User.name).distinct())
         return [row[0] for row in result]
 
-# Работало
-# async def get_all_names():
-#     """Возвращает список всех уникальных имён из базы данных."""
-#     async with async_session() as session:
-#         result = await session.execute(select(FaceEmbedding.name).distinct())
-#         names = [row[0] for row in result]
-#         return names
 
 
 async def check_name_exists(name: str) -> bool:
@@ -794,12 +668,6 @@ async def check_name_exists(name: str) -> bool:
         result = await session.execute(select(User).where(User.name == name))
         return result.scalars().first() is not None
 
-# Работало, начал добавлять FAISS и другую базу
-# async def check_name_exists(name: str) -> bool:
-#     """Проверяет, существует ли имя в базе данных."""
-#     async with async_session() as session:
-#         result = await session.execute(select(FaceEmbedding).where(FaceEmbedding.name == name))
-#         return result.scalars().first() is not None
 
 async def update_cache_and_index(name: str, embedding: np.ndarray):
     """Обновляет кеш эмбеддингов и индекс FAISS."""
@@ -815,3 +683,88 @@ async def update_cache_and_index(name: str, embedding: np.ndarray):
     # Сохраняем обновленный индекс и имена
     faiss.write_index(face_embeds_index, FACE_EMBED_INDEX_PATH)
     np.save("face_names.npy", known_embeddings_names)
+
+
+#-----------------------------------------------------------------------------------------------------------------------|
+# Добавляем новые функции для работы с пользователями и экспорта и импорта данных.
+#-----------------------------------------------------------------------------------------------------------------------|
+
+async def get_user_by_name(name: str) -> User | None:
+    """Получение пользователя по имени (первое совпадение)"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User)
+            .options(selectinload(User.embeddings))
+            .where(User.name == name)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+async def get_all_users_with_embeddings() -> list[User]:
+    """Получение всех пользователей с их эмбеддингами"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User)
+            .options(selectinload(User.embeddings))
+            .order_by(User.id)
+        )
+        return result.scalars().all()
+
+async def create_user(user_data: dict) -> User:
+    """Создание нового пользователя"""
+    async with async_session() as session:
+        try:
+            user = User(
+                tg_id=user_data['tg_id'],
+                name=user_data['name'],
+                created_at=datetime.fromisoformat(user_data['created_at'])
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+            return user
+        except Exception as e:
+            await session.rollback()
+            raise e
+
+async def get_user_by_tg_id(tg_id: int) -> User | None:
+    """Поиск пользователя по Telegram ID"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User)
+            .where(User.tg_id == tg_id)
+        )
+        return result.scalar_one_or_none()
+
+async def create_embedding(embedding_data: dict) -> FaceEmbedding:
+    """Создание нового эмбеддинга"""
+    async with async_session() as session:
+        try:
+            embedding = FaceEmbedding(
+                user_id=embedding_data['user_id'],
+                embedding=embedding_data['embedding'],
+                created_at=datetime.fromisoformat(embedding_data['created_at'])
+            )
+            session.add(embedding)
+            await session.commit()
+            await session.refresh(embedding)
+            return embedding
+        except Exception as e:
+            await session.rollback()
+            raise e
+
+async def delete_user(user_id: int):
+    """Удаление пользователя по ID"""
+    async with async_session() as session:
+        try:
+            user = await session.get(User, user_id)
+            if user:
+                await session.delete(user)
+                await session.commit()
+        except Exception as e:
+            await session.rollback()
+            raise e
+#----------------------------------------------------------------------------------------------------------------------|
+#  Закончили добавлять новые функции для работы с пользователями и экспорта и импорта данных.
+#----------------------------------------------------------------------------------------------------------------------|

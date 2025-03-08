@@ -1,10 +1,12 @@
 import asyncio
 import os
+from datetime import datetime
+
 import cv2
 import logging
 from pathlib import Path
 from aiogram import Router, Bot, F
-from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, ReplyKeyboardRemove, BufferedInputFile
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -18,6 +20,7 @@ from app.database.models import User, async_session
 import app.database.requests as rq
 import app.keyboards as kb
 import app.recognition.face as fc
+import  app.expimp.migration as mg
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -616,3 +619,76 @@ async def find_photos_handler(message: Message):
 # #___________________________________________________________________________________________________________________
 # #   Отправка 10 первых найденных фото
 # #___________________________________________________________________________________________________________________
+
+#----------------------------------------------------------------------------------------------------------------------|
+# Добавляем новые функции для работы с пользователями и экспорта и импорта данных.
+#----------------------------------------------------------------------------------------------------------------------|
+
+
+@router.message(Command("export"))
+async def handle_export_command(message: Message):
+    """Обработчик команды /export"""
+    names = await rq.get_all_names()
+
+    if not names:
+        await message.answer("В базе нет пользователей для экспорта")
+        return
+
+    await message.answer(
+        "Выберите пользователя для экспорта или нажмите 'Весь список':",
+        reply_markup=kb.get_export_keyboard(names)
+    )
+
+
+
+
+
+@router.message(F.text.startswith("🔹 "))
+async def handle_single_export(message: Message):
+    """Обработка выбора конкретного пользователя"""
+    user_name = message.text[2:]  # Удаляем эмоджи-префикс
+    await process_export(message, user_name)
+
+
+@router.message(F.text == "📋 Весь список")
+async def handle_full_export(message: Message):
+    """Обработка экспорта всех пользователей"""
+    await process_export(message)
+
+
+async def process_export(message: Message, user_name: str = None):
+    """Общая логика экспорта"""
+    try:
+        # Создаем архив в памяти
+        zip_buffer = await mg.export_user_data(user_name)
+
+        # Формируем понятное имя файла
+        file_name = f"export_{user_name if user_name else 'full'}_{datetime.now().strftime('%Y%m%d')}.zip"
+
+        # Отправляем архив пользователю
+        await message.answer_document(
+            document=BufferedInputFile(
+                file=zip_buffer.read(),
+                filename=file_name
+            ),
+            caption=f"Экспорт данных {'пользователя ' + user_name if user_name else 'всех пользователей'}"
+        )
+    except Exception as e:
+        await message.answer(f"Ошибка при экспорте: {str(e)}")
+    finally:
+        await message.answer(
+            "Выберите следующее действие:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+
+@router.message(F.text == "❌ Отмена")
+async def handle_cancel(message: Message):
+    """Обработка отмены экспорта"""
+    await message.answer(
+        "Экспорт отменен",
+        reply_markup=ReplyKeyboardRemove()
+    )
+# ----------------------------------------------------------------------------------------------------------------------|
+#  Закончили добавлять новые функции для работы с пользователями и экспорта и импорта данных.
+# ----------------------------------------------------------------------------------------------------------------------|
