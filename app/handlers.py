@@ -651,9 +651,22 @@ async def handle_single_export(message: Message):
 
 
 @router.message(F.text == "📋 Весь список")
-async def handle_full_export(message: Message):
+async def handle_full_export_confirm(message: Message):
+    """Подтверждение полного экспорта"""
+    await message.answer(
+        "Вы уверены, что хотите экспортировать ВСЕ данные?",
+        reply_markup=kb.get_confirmation_keyboard()
+    )
+
+@router.callback_query()
+async def handle_full_export(callback: CallbackQuery):
     """Обработка экспорта всех пользователей"""
-    await process_export(message)
+    if callback.data == "confirm_add":
+        await process_export(callback.message)
+    else:
+        await callback.message.answer("❌ Отмена")
+
+
 
 
 async def process_export(message: Message, user_name: str = None):
