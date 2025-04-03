@@ -22,9 +22,10 @@ print(f"{device}")
 mtcnn = MTCNN(
     keep_all=True,
     device=device,
-    thresholds=[0.6, 0.6, 0.6],  # Более мягкие пороги
-    min_face_size=45,  # Уменьшенный размер
-    margin=8   # Отступ вокруг лица
+    thresholds=[0.5, 0.5, 0.6],  # Более мягкие пороги
+    min_face_size=35,  # Уменьшенный размер
+    margin=10,   # Отступ вокруг лица
+    # post_process=False            # Отключение постобработки для мелких лиц
     # thresholds=[0.7, 0.8, 0.9],   # Более строгие пороги
     # min_face_size=100,    # Минимальный размер лица
     # margin=20 # Отступ вокруг лица
@@ -39,7 +40,7 @@ resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 
 # Вот улучшенная функция распознавания для файла face.py,
 # которая корректно обрабатывает несколько эмбеддингов для одного человека и использует FAISS для быстрого поиска:
-async def recognize_face(image_path, threshold=0.56):
+async def recognize_face(image_path, threshold=0.56, scale_factor=3):
     """Распознавание лица на фотографии с использованием нескольких эмбеддингов."""
     # Получаем актуальные эмбеддинги
     known_embeddings = get_known_embeddings()
@@ -55,7 +56,9 @@ async def recognize_face(image_path, threshold=0.56):
 
     logging.info(f"Начало распознавания лица для файла: {image_path}")
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-    faces = await asyncio.to_thread(mtcnn, image)
+    # Предварительное масштабирование изображения
+    scaled_image = preprocess_image(image, scale_factor)
+    faces = await asyncio.to_thread(mtcnn, scaled_image)
     if faces is None:
         return None
 
@@ -176,10 +179,12 @@ async def recognize_face(image_path, threshold=0.56):
 #
 #     return None
 
-async def save_embedding(image_path: str, name: str, tg_id: str):
+async def save_embedding(image_path: str, name: str, tg_id: str, scale_factor=3):
     """Извлечение и сохранение эмбеддинга."""
     image = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
-    faces = mtcnn(image)
+    # Предварительное масштабирование изображения
+    scaled_image = preprocess_image(image, scale_factor)
+    faces = mtcnn(scaled_image)
     if faces is None:
         return None
 
@@ -200,6 +205,11 @@ async def save_embedding(image_path: str, name: str, tg_id: str):
 
     # Сохраняем эмбеддинг через requests.py
     return await rq.save_embedding(name, tg_id, embedding)
+
+def preprocess_image(image, scale_factor=1.5):
+    height, width = image.shape[:2]
+    new_size = (int(width * scale_factor), int(height * scale_factor))
+    return cv2.resize(image, new_size, interpolation=cv2.INTER_LINEAR)
 
 # Работало, начал новую базу
 # async def save_embedding(image_path: str, name: str, tg_id: str):
