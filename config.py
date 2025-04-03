@@ -24,7 +24,9 @@ def get_known_embeddings():
     return known_embeddings
 
 # Конфигурация обработки папки
-PHOTOS_DIR = Path("user_photos")
+# PHOTOS_DIR = Path("user_photos")
+# Путь к папке с фотографиями (абсолютный путь)
+PHOTOS_DIR = Path(__file__).parent / "user_photos"  # Пример для Linux/Windows
 FAISS_INDEX_PATH = "embeddings.faiss"
 
 # # проверяем что в файле просто тест

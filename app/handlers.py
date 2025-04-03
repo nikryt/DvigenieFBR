@@ -434,18 +434,25 @@ async def scan_photos_handler(message: Message):
 #   Отправка всех найденных фото альбомами 10 штук в альбоме
 #___________________________________________________________________________________________________________________
 
-@router.message(F.text.lower.startswith("Найти "))
+@router.message(F.text.lower().startswith("найти "))
 async def find_photos_handler(message: Message):
     """Обработчик поиска с отправкой альбомами"""
     try:
-        name = message.text.split(" ", 1)[1].strip()
+        # Добавьте проверку наличия текста после "найти"
+        parts = message.text.split(maxsplit=1)
+        if len(parts) < 2:
+            await message.answer("❌ Укажите имя для поиска после команды 'найти'.")
+            return
+
+        name = parts[1].strip()
         photos = await rq.get_photos_by_name(name)
 
         if not photos:
             await message.answer(f"Фотографии с именем {name} не найдены.")
             return
 
-        base_path = "./user_photos/"
+        # base_path = "./user_photos/"
+        base_path = Path("./user_photos")  # Используем Path
         total = len(photos)
         await message.answer(f"📁 Найдено {total} фото. Формирую альбомы...")
 
@@ -507,7 +514,7 @@ async def find_photos_handler(message: Message):
 #___________________________________________________________________________________________________________________
 #   Отправка всех найденных фото альбомами 10 штук в альбоме
 #___________________________________________________________________________________________________________________
-#
+# #
 # #___________________________________________________________________________________________________________________
 # #   Отправка всех найденных фото
 # #___________________________________________________________________________________________________________________
@@ -581,7 +588,7 @@ async def find_photos_handler(message: Message):
 #     """Обработчик поиска фотографий по имени"""
 #     try:
 #         name = message.text.split(" ", 1)[1].strip()
-#         photos = await get_photos_by_name(name)
+#         photos = await rq.get_photos_by_name(name)
 #
 #         if not photos:
 #             await message.answer(f"Фотографии с именем {name} не найдены.")
@@ -649,7 +656,8 @@ async def handle_single_export(message: Message):
     user_name = message.text[2:]  # Удаляем эмоджи-префикс
     await process_export(message, user_name)
 
-
+# Нужно красиво всё доделать с кнопками подтверждения
+# Начало
 @router.message(F.text == "📋 Весь список")
 async def handle_full_export_confirm(message: Message):
     """Подтверждение полного экспорта"""
@@ -666,7 +674,8 @@ async def handle_full_export(callback: CallbackQuery):
     else:
         await callback.message.answer("❌ Отмена")
 
-
+# Конец
+# Нужно красиво всё доделать с кнопками подтверждения
 
 
 async def process_export(message: Message, user_name: str = None):

@@ -1,5 +1,6 @@
 import logging
 import os
+import pathlib
 from datetime import datetime
 
 import cv2
@@ -167,20 +168,105 @@ async def load_embeddings():
 #             known_embeddings[row.name] = np.frombuffer(row.embedding, dtype=np.float32)
 
 
+# async def process_directory():
+#     """Обработка директории с фотографиями и добавление в FAISS"""
+#     try:
+#         # Получаем список всех файлов изображений с корректными путями
+#         image_paths = []
+#         for root, _, files in os.walk(PHOTOS_DIR):
+#             for file in files:
+#                 if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+#                     # Формируем относительный путь БЕЗ дублирования папки
+#                     rel_path = os.path.relpath(
+#                         os.path.join(root, file),
+#                         start=str(PHOTOS_DIR)
+#                     )
+#                     image_paths.append(rel_path)
+#
+#         # Получаем уже обработанные файлы
+#         async with async_session_photo() as session:
+#             result = await session.execute(select(Photo.file_path))
+#             # Исправлено: используем скалярные значения напрямую
+#             processed = {row for row in result.scalars()}
+#
+#         new_images = [p for p in image_paths if p not in processed]
+#         total_faces = 0
+#
+#         for img_rel_path in new_images:
+#             full_path = os.path.join(PHOTOS_DIR, img_rel_path)
+#             try:
+#                 # Проверка существования файла
+#                 if not os.path.exists(full_path):
+#                     logging.error(f"Файл отсутствует: {full_path}")
+#                     continue
+#
+#                 # Чтение файла с обработкой ошибок
+#                 image = cv2.imread(full_path)
+#                 if image is None:
+#                     logging.error(f"Ошибка чтения файла: {full_path}")
+#                     continue
+#
+#                 # Обнаружение лиц
+#                 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#                 faces = mtcnn(image_rgb)
+#
+#                 if faces is None:
+#                     continue
+#
+#                 # Генерация эмбеддингов
+#                 faces_tensor = faces.to(device)
+#                 embeddings = resnet(faces_tensor).detach().cpu().numpy()
+#                 embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+#
+#                 if embeddings.shape[0] == 0:
+#                     continue
+#
+#                 # Добавление в FAISS и базу данных
+#                 async with async_session_photo() as session:
+#                     # Добавляем эмбеддинги в индекс
+#                     start_idx = known_embeddings_index.ntotal
+#                     known_embeddings_index.add(embeddings.astype(np.float32))
+#
+#                     # Сохраняем записи в базу
+#                     for face_idx in range(embeddings.shape[0]):
+#                         embedding_bytes = embeddings[face_idx].tobytes()  # Конвертируем эмбеддинг
+#                         photo = Photo(
+#                             file_path=img_rel_path,
+#                             embedding=embedding_bytes,  # Сохраняем эмбеддинг
+#                             embedding_idx=start_idx + face_idx,
+#                             face_index=face_idx,
+#                             processed=True,
+#                             processed_at=datetime.now()
+#                         )
+#                         session.add(photo)
+#                     await session.commit()
+#
+#                 total_faces += embeddings.shape[0]
+#
+#             except Exception as e:
+#                 logging.error(f"Ошибка обработки {full_path}: {str(e)}", exc_info=True)
+#
+#         # Сохранение индекса
+#         faiss.write_index(known_embeddings_index, FAISS_INDEX_PATH)
+#         return total_faces
+#
+#     except Exception as e:
+#         logging.error(f"Фатальная ошибка: {str(e)}", exc_info=True)
+#         return 0
+
+
 async def process_directory():
     """Обработка директории с фотографиями и добавление в FAISS"""
     try:
-        # Получаем список всех файлов изображений с корректными путями
+        photos_dir = pathlib.Path(PHOTOS_DIR)  # Конвертируем в Path object
         image_paths = []
-        for root, _, files in os.walk(PHOTOS_DIR):
-            for file in files:
-                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    # Формируем относительный путь БЕЗ дублирования папки
-                    rel_path = os.path.relpath(
-                        os.path.join(root, file),
-                        start=str(PHOTOS_DIR)
-                    )
-                    image_paths.append(rel_path)
+
+        # Рекурсивный поиск файлов с использованием pathlib
+        for file_path in photos_dir.glob('**/*'):
+            if file_path.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+                # Получаем относительный путь как строку
+                rel_path = str(file_path.relative_to(photos_dir))
+                image_paths.append(rel_path)
 
         # Получаем уже обработанные файлы
         async with async_session_photo() as session:
@@ -192,15 +278,14 @@ async def process_directory():
         total_faces = 0
 
         for img_rel_path in new_images:
-            full_path = os.path.join(PHOTOS_DIR, img_rel_path)
-            try:
-                # Проверка существования файла
-                if not os.path.exists(full_path):
-                    logging.error(f"Файл отсутствует: {full_path}")
-                    continue
+            full_path = PHOTOS_DIR / img_rel_path
+            full_path = full_path.resolve()  # Нормализуем путь
 
-                # Чтение файла с обработкой ошибок
-                image = cv2.imread(full_path)
+            try:
+                # Исправление: разделение чтения и декодирования
+                file_data = np.fromfile(str(full_path), dtype=np.uint8)  # Читаем как байты
+                image = cv2.imdecode(file_data, cv2.IMREAD_COLOR)
+
                 if image is None:
                     logging.error(f"Ошибка чтения файла: {full_path}")
                     continue
@@ -297,6 +382,138 @@ async def cleanup_missing_files():
         logging.error(f"Ошибка очистки: {str(e)}", exc_info=True)
         return 0
 
+
+# async def process_directory():
+#     """Обработка директории с фотографиями и добавление в FAISS"""
+#     try:
+#         PHOTOS_DIR = pathlib.Path(PHOTOS_DIR)  # Конвертируем в Path object
+#         image_paths = []
+#
+#         # Рекурсивный поиск файлов с использованием pathlib
+#         for file_path in PHOTOS_DIR.glob('**/*'):
+#             if file_path.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+#                 # Получаем относительный путь как строку
+#                 rel_path = str(file_path.relative_to(PHOTOS_DIR))
+#                 image_paths.append(rel_path)
+#
+#         # Получаем уже обработанные файлы
+#         async with async_session_photo() as session:
+#             result = await session.execute(select(Photo.file_path))
+#             # Исправлено: используем скалярные значения напрямую
+#             processed = {row for row in result.scalars()}
+#
+#         new_images = [p for p in image_paths if p not in processed]
+#         total_faces = 0
+#
+#         for img_rel_path in new_images:
+#             full_path = PHOTOS_DIR / img_rel_path  # Корректное объединение путей
+#             full_path = full_path.resolve()  # Нормализуем путь
+#
+#             try:
+#                 # Проверка существования файла
+#                 if not full_path.exists():
+#                     logging.error(f"Файл отсутствует: {full_path}")
+#                     continue
+#
+#                 # Чтение файла с явным указанием кодировки
+#                 with open(full_path, 'rb') as f:  # Проверяем доступность файла
+#                     pass  # Файл доступен для чтения
+#
+#                 # Чтение через OpenCV с преобразованием пути для Windows
+#                 faces = cv2.imdecode(
+#                     np.fromfile(full_path, dtype=np.uint8),
+#                     cv2.IMREAD_COLOR
+#                 )
+#
+#                 if faces is None:
+#                     logging.error(f"Ошибка чтения файла: {full_path}")
+#                     continue
+#
+#                 # Генерация эмбеддингов
+#                 faces_tensor = faces.to(device)
+#                 embeddings = resnet(faces_tensor).detach().cpu().numpy()
+#                 embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+#
+#                 if embeddings.shape[0] == 0:
+#                     continue
+#
+#                 # Добавление в FAISS и базу данных
+#                 async with async_session_photo() as session:
+#                     # Добавляем эмбеддинги в индекс
+#                     start_idx = known_embeddings_index.ntotal
+#                     known_embeddings_index.add(embeddings.astype(np.float32))
+#
+#                     # Сохраняем записи в базу
+#                     for face_idx in range(embeddings.shape[0]):
+#                         embedding_bytes = embeddings[face_idx].tobytes()  # Конвертируем эмбеддинг
+#                         photo = Photo(
+#                             file_path=img_rel_path,
+#                             embedding=embedding_bytes,  # Сохраняем эмбеддинг
+#                             embedding_idx=start_idx + face_idx,
+#                             face_index=face_idx,
+#                             processed=True,
+#                             processed_at=datetime.now()
+#                         )
+#                         session.add(photo)
+#                     await session.commit()
+#
+#                 total_faces += embeddings.shape[0]
+#
+#
+#             except Exception as e:
+#                 logging.error(f"Ошибка обработки {full_path}: {str(e)}", exc_info=True)
+#
+#         # Сохранение индекса
+#         faiss.write_index(known_embeddings_index, FAISS_INDEX_PATH)
+#         return total_faces
+#
+#     except Exception as e:
+#         logging.error(f"Фатальная ошибка: {str(e)}", exc_info=True)
+#         return 0
+
+
+async def cleanup_missing_files():
+    """Удаляет записи об отсутствующих файлах из базы данных и обновляет FAISS индекс."""
+    try:
+        # Собираем актуальные файлы в папке
+        existing_files = set()
+        for root, _, files in os.walk(PHOTOS_DIR):
+            for file in files:
+                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    rel_path = os.path.relpath(
+                        os.path.join(root, file),
+                        start=str(PHOTOS_DIR)
+                    )
+                    existing_files.add(rel_path)
+
+        # Получаем записи из базы данных
+        async with async_session_photo() as session:
+            # Получаем все пути из базы одним запросом
+            result = await session.execute(select(Photo.file_path))
+            db_files = {row for row in result.scalars()}
+
+            # Находим отсутствующие файлы (есть в базе, но нет в папке)
+            missing_files = db_files - existing_files
+
+            if missing_files:
+                # Удаляем записи об отсутствующих файлах
+                await session.execute(
+                    sa.delete(Photo).where(Photo.file_path.in_(missing_files))
+                )
+                await session.commit()
+                logging.info(f"Удалено {len(missing_files)} отсутствующих файлов")
+                if missing_files:
+                    logging.info(f"Удаленные файлы: {missing_files}")
+                else:
+                    logging.info("Отсутствующие файлы не обнаружены")
+
+                # Перестраиваем FAISS индекс
+                await rebuild_faiss_index()
+
+        return len(missing_files)
+    except Exception as e:
+        logging.error(f"Ошибка очистки: {str(e)}", exc_info=True)
+        return 0
 
 async def rebuild_faiss_index():
     """Перестраивает индекс FAISS на основе эмбеддингов из таблицы photos"""
