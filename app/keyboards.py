@@ -1,15 +1,29 @@
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
+
+
+# def get_start_keyboard():
+#     builder = ReplyKeyboardBuilder()
+#     builder.button(text="Распознать лицо")
+#     builder.button(text="Добавить лицо")
+#     builder.button(text="Добавить эмбеддинги")
+#     builder.button(text="Отмена")
+#     builder.button(text="найди")
+#     builder.button(text="проверь")
+#     builder.button(text="Найти Никита")
+#     builder.adjust(2, 1, 1, 3)
+#     return builder.as_markup(resize_keyboard=True)
+
 def get_start_keyboard():
     builder = ReplyKeyboardBuilder()
-    builder.button(text="Распознать лицо")
-    builder.button(text="Добавить лицо")
-    builder.button(text="Добавить эмбеддинги")
-    builder.button(text="Отмена")
-    builder.button(text="найди")
-    builder.button(text="проверь")
-    builder.button(text="Найти Никита")
-    builder.adjust(2, 1, 1, 3)
+    builder.button(text="Найти новые фотографии")
+    # builder.button(text="Добавить лицо")
+    builder.button(text="Добавить еще мой портрет")
+    # builder.button(text="Отмена")
+    # builder.button(text="найди")
+    # builder.button(text="проверь")
+    # builder.button(text="Найти Никита")
+    builder.adjust(1, 1)
     return builder.as_markup(resize_keyboard=True)
 
 def get_confirmation_keyboard():

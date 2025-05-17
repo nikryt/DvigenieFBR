@@ -82,7 +82,8 @@ async def validate_photo(image_path: str) -> bool:
 async def start_handler(message: Message, state: FSMContext):
     """Обработчик команды /start"""
     await message.answer(
-        "Привет! Отправь мне фото человека, и я попробую его распознать.",
+        "Привет!\n Я помогу тебе найти все свои фотографии с форума.\n"
+        "Отправьте мне свой портрет, и я поищу вас на всех фотографиях",
         reply_markup=kb.get_start_keyboard(),
     )
     await state.set_state(MainState.recognizing)
