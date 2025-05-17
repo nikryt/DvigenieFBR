@@ -16,9 +16,9 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 def get_start_keyboard():
     builder = ReplyKeyboardBuilder()
-    builder.button(text="Найти новые фотографии")
+    builder.button(text="Найти мои фото")
     # builder.button(text="Добавить лицо")
-    builder.button(text="Добавить еще мой портрет")
+    builder.button(text="Добавить ещё фото")
     # builder.button(text="Отмена")
     # builder.button(text="найди")
     # builder.button(text="проверь")

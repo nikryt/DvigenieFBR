@@ -88,6 +88,44 @@ async def start_handler(message: Message, state: FSMContext):
     )
     await state.set_state(MainState.recognizing)
 
+# Новый блок для ДВИЖЕНИЯ
+
+@router.message(F.photo)
+async def handle_user_photo(message: Message, bot: Bot):
+    try:
+        user_tg_id = message.from_user.id
+        photo = message.photo[-1]
+
+        # Скачивание и обработка фото
+        download_path = await download_photo(bot, photo.file_id, "user_")
+        if not await validate_photo(download_path):
+            await message.answer("На фото должно быть одно лицо!")
+            return
+
+        # Сохранение эмбеддинга
+        embedding = await fc.save_embedding(download_path, user_tg_id)
+        if embedding is None:
+            await message.answer("Ошибка обработки фото")
+            return
+
+        # Поиск совпадений
+        await message.answer("🔍 Ищем ваши фото...")
+        found_photos = await rq.find_photos_by_user(user_tg_id)
+
+        # Отправка результатов
+        if found_photos:
+            await send_photos(message.chat.id, found_photos, bot)
+        else:
+            await message.answer("Совпадений не найдено")
+
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        await message.answer("Произошла ошибка")
+    finally:
+        if download_path and os.path.exists(download_path):
+            os.remove(download_path)
+
+
 
 @router.message(lambda message: message.text == "Распознать лицо")
 async def recognize_handler(message: Message, state: FSMContext):
@@ -511,6 +549,24 @@ async def find_photos_handler(message: Message):
     except Exception as e:
         logger.error(f"Ошибка поиска: {str(e)}", exc_info=True)
         await message.answer("❌ Произошла критическая ошибка при обработке запроса.")
+
+
+# ДВИЖЕНИЕ отправка фото
+async def send_photos(chat_id: int, photo_paths: list, bot: Bot):
+    base_path = Path("./user_photos")
+
+    for i in range(0, len(photo_paths), 10):
+        media_group = []
+        for path in photo_paths[i:i + 10]:
+            full_path = base_path / path
+            if full_path.exists():
+                media_group.append(InputMediaPhoto(
+                    media=FSInputFile(full_path)
+                ))
+
+        if media_group:
+            await bot.send_media_group(chat_id, media_group)
+            await asyncio.sleep(1)
 
 #___________________________________________________________________________________________________________________
 #   Отправка всех найденных фото альбомами 10 штук в альбоме

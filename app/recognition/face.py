@@ -204,7 +204,11 @@ async def save_embedding(image_path: str, name: str, tg_id: str, scale_factor=3)
             return None
 
     # Сохраняем эмбеддинг через requests.py
-    return await rq.save_embedding(name, tg_id, embedding)
+    # # Логика для старого бота
+    # return await rq.save_embedding(name, tg_id, embedding)
+    # Логика для ДВИЖЕНИЯ
+    return await rq.save_embedding(tg_id=tg_id, embedding=embedding)
+
 
 def preprocess_image(image, scale_factor=1.5):
     height, width = image.shape[:2]

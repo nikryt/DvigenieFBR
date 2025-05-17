@@ -18,15 +18,23 @@ BasePhoto = declarative_base()
 
 # отдельные таблицы для пользователей и их эмбеддингов
 # Пользователи
+# Старая версия до ДВИЖЕНИЯ
+# class User(BaseFace):
+#     __tablename__ = "users"
+#     id = Column(Integer, primary_key=True)
+#     tg_id = Column(BigInteger, nullable=False)  # Убрали unique=True что бы один пользователь мог добавить несоклько имён.
+#     # tg_id = Column(BigInteger, unique=True, nullable=False)  # ID в Telegram уникальный
+#     name = Column(String(100), nullable=False)               # Основное имя
+#     created_at = Column(DateTime, default=datetime.now)
+#     embeddings = relationship("FaceEmbedding", back_populates="user", cascade="all, delete-orphan")
+
 class User(BaseFace):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
-    tg_id = Column(BigInteger, nullable=False)  # Убрали unique=True что бы один пользователь мог добавить несоклько имён.
-    # tg_id = Column(BigInteger, unique=True, nullable=False)  # ID в Telegram уникальный
-    name = Column(String(100), nullable=False)               # Основное имя
+    tg_id = Column(BigInteger, unique=True, nullable=False)
+    username = Column(String(100))  # Опциональное поле
     created_at = Column(DateTime, default=datetime.now)
     embeddings = relationship("FaceEmbedding", back_populates="user", cascade="all, delete-orphan")
-
 
 # Эмбеддинги
 class FaceEmbedding(BaseFace):

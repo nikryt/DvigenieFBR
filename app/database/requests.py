@@ -985,3 +985,49 @@ async def delete_user(user_id: int):
 #----------------------------------------------------------------------------------------------------------------------|
 #  Закончили добавлять новые функции для работы с пользователями и экспорта и импорта данных.
 #----------------------------------------------------------------------------------------------------------------------|
+
+
+#-----------------------------------------------------------------------------------------------------------------------|
+# Добавляем новые функции для ДВИЖЕНИЯ
+
+async def find_photos_by_user(tg_id: str, threshold=0.56, k_nearest=100):
+    """Поиск фото по эмбеддингам пользователя"""
+    async with async_session() as session:
+        # Получаем все эмбеддинги пользователя
+        user = await session.scalar(
+            select(User)
+            .options(selectinload(User.embeddings))
+            .where(User.tg_id == tg_id)
+        )
+
+        if not user or not user.embeddings:
+            return []
+
+        # Поиск совпадений для каждого эмбеддинга
+        all_matches = set()
+        for emb in user.embeddings:
+            embed_array = np.frombuffer(emb.embedding, dtype=np.float32)
+            embed_norm = embed_array / np.linalg.norm(embed_array)
+
+            # Поиск в FAISS
+            distances, indices = known_embeddings_index.search(
+                embed_norm.reshape(1, -1).astype(np.float32),
+                k_nearest
+            )
+
+            # Фильтрация по порогу
+            matches = [int(idx) for idx, dist in zip(indices[0], distances[0])
+                       if (1 - 0.5 * dist) >= threshold]
+            all_matches.update(matches)
+
+        # Получение путей к файлам
+        async with async_session_photo() as session:
+            result = await session.scalars(
+                select(Photo.file_path)
+                .where(Photo.embedding_idx.in_(all_matches))
+                .distinct()
+            )
+            return result.unique().all()
+
+# Добавляем новые функции для ДВИЖЕНИЯ
+#-----------------------------------------------------------------------------------------------------------------------|
