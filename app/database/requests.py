@@ -87,7 +87,7 @@ async def load_embeddings():
 
     async with async_session() as session:
         result = await session.execute(
-            select(User.name, FaceEmbedding.embedding)
+            select(User.tg_id, FaceEmbedding.embedding)
             .join(FaceEmbedding.user)
         )
 
